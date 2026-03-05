@@ -170,7 +170,7 @@ def compare_ivq_list(paths: List[Path], logscale=False):
     fig, axs = plt.subplots(figsize=(10, 5))
     for path in paths:
         h5data = h5py.File(path)
-        plot_ivq_i07(h5data, path.name, (fig, axs),log=logscale)
+        plot_ivq_i07(h5data, path.name, (fig, axs), log=logscale)
     if logscale:
         axs.set_yscale("log")
     plt.show()
@@ -201,7 +201,7 @@ def plot_i07_list(dirpath: Path, scantype: str, title=None):
     # --- Plotting callback ---
     fig, ax1 = plt.subplots(1, 1, figsize=(6, 3), dpi=100)
 
-    def update_plot(filename,log_scale):
+    def update_plot(filename, log_scale):
         if filename == "folder not found":
             return
         remove_axes(fig)
@@ -211,13 +211,13 @@ def plot_i07_list(dirpath: Path, scantype: str, title=None):
 
         with h5py.File(h5file) as data:
             outfunc, title = parse_i07_giwaxs(data, h5file.stem)
-            outfunc(data, title, figax=[fig, ax1],log=log_scale)
+            outfunc(data, title, figax=[fig, ax1], log=log_scale)
             plt.show()
 
         fig.canvas.draw_idle()
 
     log_box = wg.Checkbox(value=False, description="Log y-scale")
-    wg.interact(update_plot, filename=file_list,log_scale=log_box)
+    return wg.interact(update_plot, filename=file_list, log_scale=log_box)
 
 
 def get_i07_i_q_data(data):
@@ -241,14 +241,16 @@ def get_i07_qmap_data(data):
     return map2d, q_para, q_perp
 
 
-def plot_ivq_i07(data, title, figax,log):
+def plot_ivq_i07(data, title, figax, log):
     int_data, q_data = get_i07_i_q_data(data)
     while len(np.shape(q_data)) > 1:
         q_data = q_data[0]
     while len(np.shape(int_data)) > 1:
         int_data = int_data[0]
     # wg.interact(plot_1D_profile,q=q_data,intensity=int_data,title=title,ax=ax)
-    plot_1D_profile(q=q_data, intensity=int_data, title=title, figax=figax,log_scale=log)
+    plot_1D_profile(
+        q=q_data, intensity=int_data, title=title, figax=figax, log_scale=log
+    )
     # plt.show()
 
 
@@ -313,7 +315,7 @@ def plot_1D_profile(
     ax.set_title(title)
     if log_scale:
         ax.set_yscale("log")
-        #ax.set_xscale("log")
+        # ax.set_xscale("log")
     if qmin is not None and qmax is not None:
         ax.set_xlim(qmin, qmax)
     if label:
@@ -402,9 +404,14 @@ def peakfit_and_plot(peaklist, x, y):
     ax1.plot(
         xnew, comps["bkg_"], color="tab:blue", ls="--", lw=2, label="Background (bkg_)"
     )
-    for pnum in np.arange(len(peaklist))+1:
-
-        ax1.plot(xnew, comps[f"p{pnum}_"], color="tab:green", lw=2, label=f"Peak {pnum} (p{pnum}_)")
+    for pnum in np.arange(len(peaklist)) + 1:
+        ax1.plot(
+            xnew,
+            comps[f"p{pnum}_"],
+            color="tab:green",
+            lw=2,
+            label=f"Peak {pnum} (p{pnum}_)",
+        )
     ax1.legend()
     # ax1.plot(xnew, comps['p2_'], color='tab:orange', lw=2, label='Peak 2 (p2_)')
     # ax1.plot(xnew,(comps['{}'.format(fit_type)]))
