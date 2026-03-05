@@ -217,7 +217,111 @@ def plot_i07_list(dirpath: Path, scantype: str, title=None):
         fig.canvas.draw_idle()
 
     log_box = wg.Checkbox(value=False, description="Log y-scale")
-    return wg.interact(update_plot, filename=file_list, log_scale=log_box)
+    wg.interact(update_plot, filename=file_list, log_scale=log_box)
+
+
+def plot_i07_list_colab(dirpath: Path, scantype: str, title=None):
+    """
+    Colab-friendly version:
+    - Avoids %matplotlib widget/ipympl
+    - Uses ipywidgets.Output() for reliable redraws
+    - Avoids wg.interact auto-display (returns a VBox you can display())
+    - Observes changes from Text/Dropdown/Checkbox instead of using interact
+    """
+
+    # --- Controls ---
+    folder_text = wg.Text(
+        value=str(dirpath), description="Folder", layout=wg.Layout(width="100%")
+    )
+
+    # initial file list
+    try:
+        initial_options = get_files(folder_text.value, scantype)
+        if not initial_options:
+            initial_options = ["<no files>"]
+    except FileNotFoundError:
+        initial_options = ["<folder not found>"]
+
+    file_list = wg.Dropdown(
+        options=initial_options,
+        description=f"{scantype} files",
+        layout=wg.Layout(width="60%"),
+    )
+    log_box = wg.Checkbox(value=False, description="Log y-scale")
+
+    # Where plots go
+    out = wg.Output(layout=wg.Layout(border="1px solid #ddd"))
+
+    # --- Helpers ---
+    def _safe_files(folder_str: str):
+        """Refresh the file dropdown safely for a new folder."""
+        if not os.path.exists(folder_str):
+            return ["<folder not found>"]
+        try:
+            files = get_files(folder_str, scantype)
+            return files if files else ["<no files>"]
+        except FileNotFoundError:
+            return ["<no files>"]
+
+    # --- Observers / Callbacks ---
+    def on_folder_change(change):
+        new_folder = change["new"]
+        file_list.options = _safe_files(new_folder)
+        # If the new options are non-empty strings, set value to first
+        if isinstance(file_list.options, (list, tuple)) and file_list.options:
+            file_list.value = file_list.options[0]
+
+    folder_text.observe(on_folder_change, names="value")
+
+    def draw_plot():
+        """(Re)draw the plot for current selections inside Output()."""
+        filename = file_list.value
+        if filename in ("<no files>", "<folder not found>", None):
+            with out:
+                out.clear_output(wait=True)
+                print("No valid file to display.")
+            return
+
+        folder_path = Path(folder_text.value)
+        h5file = folder_path / filename
+
+        with out:
+            out.clear_output(wait=True)
+            # fresh figure for each draw (most reliable in Colab)
+            fig, ax = plt.subplots(1, 1, figsize=(6, 3), dpi=100)
+            try:
+                with h5py.File(h5file, "r") as data:
+                    outfunc, the_title = parse_i07_giwaxs(data, h5file.stem)
+                    outfunc(
+                        data,
+                        the_title if title is None else title,
+                        figax=[fig, ax],
+                        log=log_box.value,
+                    )
+                plt.tight_layout()
+                plt.show()
+            except FileNotFoundError:
+                print(f"File not found: {h5file}")
+            except Exception as e:
+                # Don't crash the widget; show the error in the output pane
+                print(f"Error while plotting {h5file}:\n{e}")
+
+    def on_file_change(change):
+        draw_plot()
+
+    def on_log_change(change):
+        draw_plot()
+
+    file_list.observe(on_file_change, names="value")
+    log_box.observe(on_log_change, names="value")
+
+    # Initial draw (if possible)
+    draw_plot()
+
+    # --- Layout ---
+    controls = wg.HBox([file_list, log_box])
+    ui = wg.VBox([folder_text, controls, out])
+    return ui
 
 
 def get_i07_i_q_data(data):
