@@ -1,3 +1,4 @@
+import logging
 import os
 from pathlib import Path
 from typing import List
@@ -10,6 +11,7 @@ import pandas as pd
 
 # from matplotlib import cm as mpl_cm
 from IPython.display import display
+from ipywidgets import fixed, interact
 from matplotlib.colors import LogNorm
 
 from MINERVA_toolbox.processing import fit_peaks
@@ -18,15 +20,230 @@ from MINERVA_toolbox.processing import fit_peaks
 class individual_plotter:
     def __init__(self, datafolder: str):
         self.datafolder = Path(datafolder)
+        self.plot_multi_data()
 
-    def plot_ivsq(self):
-        plot_i07_list(self.datafolder, scantype="IvsQ")
+    def plot_multi_data(self):
+        list_plotter_multi = ind_list_plotter(self.datafolder)
+        list_plotter_multi.create_plot()
 
-    def plot_qmap(self):
-        plot_i07_list(self.datafolder, scantype="Qmap")
+    # def plot_ivsq(self):
+    #     list_plotter_ivsq = ind_list_plotter(self.datafolder, scantype="IvsQ")
+    #     list_plotter_ivsq.create_plot()
+    #     # plot_i07_list(self.datafolder, scantype="IvsQ")
 
-    def plot_exitmap(self):
-        plot_i07_list(self.datafolder, scantype="exitmap")
+    # def plot_qmap(self):
+    #     list_plotter_qmap = ind_list_plotter(self.datafolder, scantype="Qmap")
+    #     list_plotter_qmap.create_plot()
+    #     # plot_i07_list(self.datafolder, scantype="Qmap")
+
+    # def plot_exitmap(self):
+    #     list_plotter_exitmap = ind_list_plotter(self.datafolder, scantype="exitmap")
+    #     list_plotter_exitmap.create_plot()
+    #     # plot_i07_list(self.datafolder, scantype="exitmap")
+
+
+def get_logger(folderpath, name):
+    logger = logging.getLogger(name)
+    logger.setLevel(logging.DEBUG)
+    logger.propagate = False
+
+    if not logger.handlers:  # <- prevents duplicate handlers
+        file_handler = logging.FileHandler(folderpath / f"{name}.log")
+        file_handler.setLevel(logging.DEBUG)
+        file_handler.setFormatter(
+            logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
+        )
+        logger.addHandler(file_handler)
+    # --- Silence third‑party libraries ---
+    logging.getLogger("matplotlib").setLevel(logging.WARNING)
+    logging.getLogger("h5py").setLevel(logging.WARNING)
+    logging.getLogger("PIL").setLevel(logging.WARNING)
+    logging.getLogger("asyncio").setLevel(logging.WARNING)
+    return logger
+
+
+class ind_list_plotter:
+    def __init__(self, folderpath):
+        self._updating = False
+        self.folderpath = folderpath
+
+        # self.logger = self.logger = get_logger(
+        #     self.folderpath, name=f"ind_list_plotter_{id(self)}"
+        # )
+
+    def get_files(self):
+        return [f for f in os.listdir(self.folderpath) if self.scantype in f]
+
+    def set_plot_callback(self):
+        callback_dict = {
+            "IvsQ": self._plot_ivsq,
+            "Qmap": self._plot_qmap,
+            "exitmap": self._plot_exitmap,
+        }
+        self._plot_callback = callback_dict[self.scantype]
+
+    def set_scantype(self, scantype):
+        self.scantype = scantype
+        self.filelist = self.get_files()
+        self.set_plot_callback()
+
+    def _plot_qmap(self, filename, fig, ax, log_scale):
+        h5file = self.folderpath / filename
+        with h5py.File(h5file) as data:
+            map2d, q_para, q_perp = get_i07_qmap_data(data)
+        while len(np.shape(map2d)) > 2:
+            map2d = map2d[0]
+        while len(np.shape(q_para)) > 1:
+            q_para = q_para[0]
+        while len(np.shape(q_perp)) > 1:
+            q_perp = q_perp[0]
+        axlabels = ["$_{para}$  [Å⁻¹]", "$q_{perp}$  [Å⁻¹]"]
+
+        # if "map_para_unit" in data["qpara_qperp"].keys():
+        #     axlabel_para = data["qpara_qperp/map_para_unit"][()].decode()
+        #     axlabel_perp = data["qpara_qperp/map_perp_unit"][()].decode()
+        #     axlabels = [axlabel_para, axlabel_perp]
+        fig.clear()
+        ax = fig.add_subplot(111)
+        cm = "viridis"
+        vmax, vmin = None, None
+        limits = None
+        extent = [q_para.min(), q_para.max(), q_perp.min(), q_perp.max()]
+        if vmax is None:
+            vmax = map2d.max()
+        if vmin is None:
+            vmin = np.max(np.array([map2d.min(), 0.01]))
+        im = ax.imshow(
+            map2d,
+            cmap=cm,
+            extent=extent,
+            norm=LogNorm(vmin=vmin, vmax=vmax),
+            aspect=1,
+        )
+        if limits is not None:
+            ax.set_xlim(limits[0], limits[1])
+            ax.set_ylim(limits[2], limits[3])
+        ax.set_title(filename)
+        ax.set_xlabel(axlabels[0])
+        ax.set_ylabel(axlabels[1])
+        fig.colorbar(im, ax=ax, location="right")
+        ax.set_aspect("auto")
+        return fig
+
+    def _plot_exitmap(self, filename, fig, ax, log_scale):
+        h5file = self.folderpath / filename
+        with h5py.File(h5file) as data:
+            map2d, exit_para, exit_perp = get_i07_exitmap_data(data)
+        while len(np.shape(map2d)) > 2:
+            map2d = map2d[0]
+        while len(np.shape(exit_para)) > 1:
+            exit_para = exit_para[0]
+        while len(np.shape(exit_perp)) > 1:
+            exit_perp = exit_perp[0]
+        exit_perp *= -1
+        axlabels = ["$exitangle_{para}$  [deg]", "$exitangle_{perp}$  [deg]"]
+        # if "map_para_unit" in data["exit_angles"].keys():
+        #     axlabel_para = data["exit_angles/map_para_unit"][()].decode()
+        #     axlabel_perp = data["exit_angles/map_perp_unit"][()].decode()
+        #     axlabels = [axlabel_para, axlabel_perp]
+
+        fig.clear()
+        ax = fig.add_subplot(111)
+
+        cm = "viridis"
+        vmax, vmin = None, None
+        limits = None
+        extent = [exit_para.min(), exit_para.max(), exit_perp.min(), exit_perp.max()]
+        if vmax is None:
+            vmax = map2d.max()
+        if vmin is None:
+            vmin = np.max(np.array([map2d.min(), 0.01]))
+        im = ax.imshow(
+            map2d,
+            cmap=cm,
+            extent=extent,
+            norm=LogNorm(vmin=vmin, vmax=vmax),
+            aspect=1,
+        )
+        if limits is not None:
+            ax.set_xlim(limits[0], limits[1])
+            ax.set_ylim(limits[2], limits[3])
+        ax.set_title(filename)
+        ax.set_xlabel(axlabels[0])
+        ax.set_ylabel(axlabels[1])
+        plt.colorbar(im, ax=ax, location="right")
+        ax.set_aspect("auto")
+        return
+
+    def _plot_ivsq(self, filename, fig, ax, log_scale):
+        """
+        Plot a 1D intensity profile.
+        """
+        h5file = self.folderpath / filename
+        with h5py.File(h5file) as data:
+            int_data, q_data = get_i07_i_q_data(data)
+        while len(np.shape(q_data)) > 1:
+            q_data = q_data[0]
+        while len(np.shape(int_data)) > 1:
+            int_data = int_data[0]
+
+        # fig, ax = plot_1D_profile(q_data, int_data, title=filename, log_scale=log_scale)
+        fig.clear()
+        ax = fig.add_subplot(111)
+        ax.plot(q_data, int_data)
+        ax.set_xlabel("Q (A^-1)")
+        ax.set_ylabel("Intensity")
+        ax.set_title(filename)
+        label = None
+        qmin, qmax = None, None
+        if log_scale:
+            ax.set_yscale("log")
+        if qmin is not None and qmax is not None:
+            ax.set_xlim(qmin, qmax)
+        if label:
+            ax.legend()
+        return fig
+
+    def create_plot(self):
+        # out = Output()  # persistent output area
+        fig, ax = plt.subplots()
+        self.set_scantype("IvsQ")
+        files = wg.Dropdown(
+            options=self.filelist,
+            description=f"{self.scantype} files",
+        )
+
+        @interact(
+            scantype=wg.Dropdown(
+                options=["IvsQ", "Qmap", "exitmap"],
+                description="scantype",
+            ),
+            filename=files,
+            log_scale=wg.Checkbox(value=False),
+            fig=fixed(fig),
+            ax=fixed(ax),
+        )
+        def do_plot(scantype, filename, log_scale):
+            if self._updating:
+                return
+            # out.clear_output()
+            self._updating = True
+            self.set_scantype(scantype)
+            files.options = self.filelist
+            self._updating = False
+
+            # SKIP invalid combinations when interact misfires
+            if filename not in self.filelist:
+                filename = files.options[0]
+
+            # your existing plot functions already draw correctly
+            self._plot_callback(filename, fig, ax, log_scale)
+
+            # display(fig)
+            # plt.draw()
+            # display(out)  # ✅ critical: ipympl REQUIRES this
+
+        # display(VBox([out]))
 
 
 class comparison_plotter:
@@ -66,9 +283,6 @@ class dummy_plotter:
     def plot_ivsq(self, option_values):
         list_plot = DummyListPlotter(option_values, scantype="IvsQ")
         list_plot.create_plot()
-
-
-from ipywidgets import interact
 
 
 class DummyListPlotter:
@@ -358,7 +572,7 @@ def plot_qmap_i07(data, title, figax, log=False):
     while len(np.shape(q_perp)) > 1:
         q_perp = q_perp[0]
 
-    if "map_para_unit" not in data["qpara_qperp/"].keys():
+    if "map_para_unit" not in data["qpara_qperp"].keys():
         fig, ax = plot_2D_map(map2d, q_para, q_perp, title=title, figax=figax)
     else:
         axlabel_para = data["qpara_qperp/map_para_unit"][()].decode()
@@ -786,6 +1000,13 @@ def remove_colorbars(fig):
 def remove_axes(fig):
     for ax in fig.axes:
         fig.delaxes(ax)
+
+
+if __name__ == "__main__":
+    ind_plotter = individual_plotter(
+        datafolder="/dls/science/users/rpy65944/I07_work/MINERVA_analysis/MINERVA_training/example_data"
+    )
+    ind_plotter.plot_qmap()
 
 
 #     folder_path=Path(folder_text.value)
