@@ -108,16 +108,6 @@ def get_2d_data(data, paths, dataind, axisind):
     return dataout, np.array([para_out, perp_out])
 
 
-class individual_plotter:
-    def __init__(self, datafolder: str):
-        self.datafolder = Path(datafolder)
-        self.plot_multi_data()
-
-    def plot_multi_data(self):
-        list_plotter_multi = ind_list_plotter(self.datafolder)
-        list_plotter_multi.create_plot()
-
-
 def check_shape(inshape, expected_shape, index1, index2):
     if len(inshape) == expected_shape:
         ind1max = 0
@@ -139,6 +129,19 @@ def check_shape(inshape, expected_shape, index1, index2):
             index2 = 0
         outind = (index1, index2, slice(None))
     return outind, index1, index2, ind1max, ind2max
+
+
+class individual_plotter:
+    def __init__(self, datafolder: str):
+        self.datafolder = Path(datafolder)
+        self.plot_multi_data()
+        plt.ioff()
+        plt.close("all")
+        plt.ion()
+
+    def plot_multi_data(self):
+        list_plotter_multi = ind_list_plotter(self.datafolder)
+        list_plotter_multi.create_plot()
 
 
 class ind_list_plotter:
@@ -290,6 +293,7 @@ class ind_list_plotter:
             self._updating = False
             self.index1.layout.visibility = "hidden"
             self.index2.layout.visibility = "hidden"
+
             # SKIP invalid combinations when interact misfires
             if filename not in self.filelist:
                 filename = files.options[0]
@@ -308,29 +312,36 @@ class comparison_plotter:
     def __init__(self, datafolder: str):
         self.datafolder = Path(datafolder)
 
-    def plot_files(self, filenames: str, logscale=False):
+    def plot_files(
+        self, filenames: str, logscale=False, index1: int = 0, index2: int = 0
+    ):
         if all(["IvsQ" in file for file in filenames]):
-            self.plot_ivsq(filenames, logscale)
+            self.plot_ivsq(filenames, index1, index2, logscale)
         elif all(["Qmap" in file for file in filenames]):
             self.plot_qmap(filenames, logscale)
         elif all(["exitmap" in file for file in filenames]):
             self.plot_exitmap(filenames, logscale)
 
-    def plot_ivsq(self, filenames: list, logscale=False):
+    def plot_ivsq(self, filenames: list, index1: int, index2: int, logscale: bool):
         plotpaths = [self.datafolder / name for name in filenames]
-        self.compare_ivq_list(plotpaths, logscale)
 
-    def compare_ivq_list(paths: List[Path], logscale=False):
         fig, ax = plt.subplots(figsize=(10, 5))
         int_path = "integrations/Intensity"
         q_path = "integrations/Q_angstrom^-1"
-        for path in paths:
+        for path in plotpaths:
             with h5py.File(path) as h5data:
-                get_1d_data(h5data, [int_path, q_path], dataind)
-                plot_ivq_i07(h5data, path.name, (fig, ax), log=logscale)
-
-        if logscale:
-            ax.set_yscale("log")
+                int_path = "integrations/Intensity"
+                q_path = "integrations/Q_angstrom^-1"
+                y_shape = np.shape(h5data[int_path])
+                x_shape = np.shape(h5data[q_path])
+                expected_shape = np.int32(1)
+                dataind, index1, index2, ind1max, ind2max = check_shape(
+                    y_shape, expected_shape, index1, index2
+                )
+                axisind, *_ = check_shape(x_shape, expected_shape, index1, index2)
+                y_out, x_out = get_1d_data(h5data, [int_path, q_path], dataind, axisind)
+                axlabels = ["Intensity", "Q (A^-1)"]
+                plot_1d_profile(y_out, x_out, path, fig, ax, logscale, axlabels)
 
         fig.canvas.draw_idle()
 
