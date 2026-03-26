@@ -12,34 +12,9 @@ import pandas as pd
 # from matplotlib import cm as mpl_cm
 from IPython.display import display
 from ipywidgets import fixed, interact
-from matplotlib.colors import LogNorm
+from matplotlib.colors import LogNorm, Normalize
 
 from MINERVA_toolbox.processing import fit_peaks
-
-
-class individual_plotter:
-    def __init__(self, datafolder: str):
-        self.datafolder = Path(datafolder)
-        self.plot_multi_data()
-
-    def plot_multi_data(self):
-        list_plotter_multi = ind_list_plotter(self.datafolder)
-        list_plotter_multi.create_plot()
-
-    # def plot_ivsq(self):
-    #     list_plotter_ivsq = ind_list_plotter(self.datafolder, scantype="IvsQ")
-    #     list_plotter_ivsq.create_plot()
-    #     # plot_i07_list(self.datafolder, scantype="IvsQ")
-
-    # def plot_qmap(self):
-    #     list_plotter_qmap = ind_list_plotter(self.datafolder, scantype="Qmap")
-    #     list_plotter_qmap.create_plot()
-    #     # plot_i07_list(self.datafolder, scantype="Qmap")
-
-    # def plot_exitmap(self):
-    #     list_plotter_exitmap = ind_list_plotter(self.datafolder, scantype="exitmap")
-    #     list_plotter_exitmap.create_plot()
-    #     # plot_i07_list(self.datafolder, scantype="exitmap")
 
 
 def get_logger(folderpath, name):
@@ -62,6 +37,110 @@ def get_logger(folderpath, name):
     return logger
 
 
+def plot_2d_map(loaded_data, loaded_axis, filename, fig, ax, log_scale, axlabels):
+    map2d = loaded_data
+    q_para, q_perp = loaded_axis
+    fig.clear()
+    ax = fig.add_subplot(111)
+    cm = "viridis"
+    vmax, vmin = None, None
+    limits = None
+    extent = [q_para.min(), q_para.max(), q_perp.min(), q_perp.max()]
+    if vmax is None:
+        vmax = np.mean(map2d) + 2 * np.std(map2d)
+    if vmin is None:
+        vmin = np.max(np.array([map2d.min(), 0.01]))
+    if log_scale:
+        normvals = LogNorm(vmin=vmin, vmax=vmax)
+    else:
+        normvals = Normalize(vmin=vmin, vmax=vmax)
+    im = ax.imshow(
+        map2d,
+        cmap=cm,
+        extent=extent,
+        norm=normvals,
+        aspect=1,
+    )
+    if limits is not None:
+        ax.set_xlim(limits[0], limits[1])
+        ax.set_ylim(limits[2], limits[3])
+    ax.set_title(filename)
+    ax.set_xlabel(axlabels[0])
+    ax.set_ylabel(axlabels[1])
+    fig.colorbar(im, ax=ax, location="right")
+    ax.set_aspect("auto")
+    return fig
+
+
+def plot_1d_profile(loaded_data, loaded_axis, filename, fig, ax, log_scale, axlabels):
+    """
+    Plot a 1D intensity profile.
+    """
+    y_data = loaded_data
+    x_data = loaded_axis
+    fig.clear()
+    ax = fig.add_subplot(111)
+    ax.plot(x_data, y_data)
+    ax.set_xlabel(axlabels[1])
+    ax.set_ylabel(axlabels[0])
+    ax.set_title(filename)
+    label = None
+    qmin, qmax = None, None
+    if log_scale:
+        ax.set_yscale("log")
+    if qmin is not None and qmax is not None:
+        ax.set_xlim(qmin, qmax)
+    if label:
+        ax.legend()
+    return fig
+
+
+def get_1d_data(data, paths, dataind, axisind):
+    y_out = data[paths[0]][dataind]
+    x_out = data[paths[1]][axisind]
+    return y_out, x_out
+
+
+def get_2d_data(data, paths, dataind, axisind):
+    dataout = data[paths[0]][dataind]
+    para_out = data[paths[1]][axisind]
+    perp_out = data[paths[2]][axisind]
+    return dataout, np.array([para_out, perp_out])
+
+
+class individual_plotter:
+    def __init__(self, datafolder: str):
+        self.datafolder = Path(datafolder)
+        self.plot_multi_data()
+
+    def plot_multi_data(self):
+        list_plotter_multi = ind_list_plotter(self.datafolder)
+        list_plotter_multi.create_plot()
+
+
+def check_shape(inshape, expected_shape, index1, index2):
+    if len(inshape) == expected_shape:
+        ind1max = 0
+        ind2max = 0
+        outind = slice(None)
+
+    if len(inshape) == expected_shape + 1:
+        ind1max = inshape[0] - 1
+        ind2max = 0
+        if index1 > ind1max:
+            index1 = 0
+        outind = (index1, slice(None))
+    if len(inshape) == expected_shape + 2:
+        ind1max = inshape[0] - 1
+        ind2max = inshape[1] - 1
+        if index1 > ind1max:
+            index1 = 0
+        if index2 > ind2max:
+            index2 = 0
+        outind = (index1, index2, slice(None))
+    return outind, index1, index2, ind1max, ind2max
+
+
 class ind_list_plotter:
     def __init__(self, folderpath):
         self._updating = False
@@ -82,127 +161,99 @@ class ind_list_plotter:
         }
         self._plot_callback = callback_dict[self.scantype]
 
+    def check_shape_index(self, datashape, axis_shape, expected_shape, index1, index2):
+
+        dataind, index1, index2, ind1max, ind2max = check_shape(
+            datashape, expected_shape, index1, index2
+        )
+
+        axisind, *_ = check_shape(axis_shape, expected_shape, index1, index2)
+        self.index1.max = ind1max
+        self.index2.max = ind2max
+        self.index1.layout.visibility = "hidden" if ind1max == 0 else "visible"
+        self.index2.layout.visibility = "hidden" if ind2max == 0 else "visible"
+        return dataind, axisind, index1, index2
+
+    def _checkget_1d_data(self, data, paths, index1, index2):
+        y_shape = np.shape(data[paths[0]])
+        x_shape = np.shape(data[paths[1]])
+        dataind, axisind, index1, index2 = self.check_shape_index(
+            y_shape, x_shape, np.int32(1), index1, index2
+        )
+        y_out, x_out = get_1d_data(data, paths, dataind, axisind)
+        return y_out, x_out, index1, index2
+
+    def _get_i07_i_q_data(self, data, index1, index2):
+        int_path = "integrations/Intensity"
+        q_path = "integrations/Q_angstrom^-1"
+        return self._checkget_1d_data(data, [int_path, q_path], index1, index2)
+
+    def _checkget_2d_data(self, data, paths, index1, index2):
+        map2d_shape = np.shape(data[paths[0]])
+        para_shape = np.shape(data[paths[1]])
+        perp_shape = np.shape(data[paths[2]])
+        assert len(para_shape) == len(perp_shape)
+
+        dataind, axisind, index1, index2 = self.check_shape_index(
+            map2d_shape, np.array([para_shape, perp_shape]), np.int32(2), index1, index2
+        )
+        dataout, axisout = get_2d_data(data, paths, dataind, axisind)
+        return dataout, axisout, index1, index2
+
+    def _get_i07_qmap_data(self, data, index1, index2):
+        mappath = "qpara_qperp/qpara_qperp_map"
+        para_path = "qpara_qperp/map_para"
+        perp_path = "qpara_qperp/map_perp"
+
+        return self._checkget_2d_data(
+            data, [mappath, para_path, perp_path], index1, index2
+        )
+
+    def _get_i07_exitmap_data(self, data, index1, index2):
+        mappath = "exit_angles/exit_angles_map"
+        para_path = "exit_angles/map_para"
+        perp_path = "exit_angles/map_perp"
+        return self._checkget_2d_data(
+            data, [mappath, para_path, perp_path], index1, index2
+        )
+
+    def set_dataloader(self):
+        loaders_dict = {
+            "IvsQ": self._get_i07_i_q_data,
+            "Qmap": self._get_i07_qmap_data,
+            "exitmap": self._get_i07_exitmap_data,
+        }
+        self._dataloader = loaders_dict[self.scantype]
+
     def set_scantype(self, scantype):
         self.scantype = scantype
         self.filelist = self.get_files()
         self.set_plot_callback()
+        self.set_dataloader()
 
-    def _plot_qmap(self, filename, fig, ax, log_scale):
-        h5file = self.folderpath / filename
-        with h5py.File(h5file) as data:
-            map2d, q_para, q_perp = get_i07_qmap_data(data)
-        while len(np.shape(map2d)) > 2:
-            map2d = map2d[0]
-        while len(np.shape(q_para)) > 1:
-            q_para = q_para[0]
-        while len(np.shape(q_perp)) > 1:
-            q_perp = q_perp[0]
+    def _plot_qmap(self, loaded_data, loaded_axis, filename, fig, ax, log_scale):
         axlabels = ["$_{para}$  [Å⁻¹]", "$q_{perp}$  [Å⁻¹]"]
-
-        # if "map_para_unit" in data["qpara_qperp"].keys():
-        #     axlabel_para = data["qpara_qperp/map_para_unit"][()].decode()
-        #     axlabel_perp = data["qpara_qperp/map_perp_unit"][()].decode()
-        #     axlabels = [axlabel_para, axlabel_perp]
-        fig.clear()
-        ax = fig.add_subplot(111)
-        cm = "viridis"
-        vmax, vmin = None, None
-        limits = None
-        extent = [q_para.min(), q_para.max(), q_perp.min(), q_perp.max()]
-        if vmax is None:
-            vmax = map2d.max()
-        if vmin is None:
-            vmin = np.max(np.array([map2d.min(), 0.01]))
-        im = ax.imshow(
-            map2d,
-            cmap=cm,
-            extent=extent,
-            norm=LogNorm(vmin=vmin, vmax=vmax),
-            aspect=1,
+        return plot_2d_map(
+            loaded_data, loaded_axis, filename, fig, ax, log_scale, axlabels
         )
-        if limits is not None:
-            ax.set_xlim(limits[0], limits[1])
-            ax.set_ylim(limits[2], limits[3])
-        ax.set_title(filename)
-        ax.set_xlabel(axlabels[0])
-        ax.set_ylabel(axlabels[1])
-        fig.colorbar(im, ax=ax, location="right")
-        ax.set_aspect("auto")
-        return fig
 
-    def _plot_exitmap(self, filename, fig, ax, log_scale):
-        h5file = self.folderpath / filename
-        with h5py.File(h5file) as data:
-            map2d, exit_para, exit_perp = get_i07_exitmap_data(data)
-        while len(np.shape(map2d)) > 2:
-            map2d = map2d[0]
-        while len(np.shape(exit_para)) > 1:
-            exit_para = exit_para[0]
-        while len(np.shape(exit_perp)) > 1:
-            exit_perp = exit_perp[0]
-        exit_perp *= -1
+    def _plot_exitmap(self, loaded_data, loaded_axis, filename, fig, ax, log_scale):
+        factors = np.array([1, -1])
+        factor_cols = factors[:, None]
+        loaded_axis *= factor_cols
         axlabels = ["$exitangle_{para}$  [deg]", "$exitangle_{perp}$  [deg]"]
-        # if "map_para_unit" in data["exit_angles"].keys():
-        #     axlabel_para = data["exit_angles/map_para_unit"][()].decode()
-        #     axlabel_perp = data["exit_angles/map_perp_unit"][()].decode()
-        #     axlabels = [axlabel_para, axlabel_perp]
-
-        fig.clear()
-        ax = fig.add_subplot(111)
-
-        cm = "viridis"
-        vmax, vmin = None, None
-        limits = None
-        extent = [exit_para.min(), exit_para.max(), exit_perp.min(), exit_perp.max()]
-        if vmax is None:
-            vmax = map2d.max()
-        if vmin is None:
-            vmin = np.max(np.array([map2d.min(), 0.01]))
-        im = ax.imshow(
-            map2d,
-            cmap=cm,
-            extent=extent,
-            norm=LogNorm(vmin=vmin, vmax=vmax),
-            aspect=1,
+        return plot_2d_map(
+            loaded_data, loaded_axis, filename, fig, ax, log_scale, axlabels
         )
-        if limits is not None:
-            ax.set_xlim(limits[0], limits[1])
-            ax.set_ylim(limits[2], limits[3])
-        ax.set_title(filename)
-        ax.set_xlabel(axlabels[0])
-        ax.set_ylabel(axlabels[1])
-        plt.colorbar(im, ax=ax, location="right")
-        ax.set_aspect("auto")
-        return
 
-    def _plot_ivsq(self, filename, fig, ax, log_scale):
+    def _plot_ivsq(self, loaded_data, loaded_axis, filename, fig, ax, log_scale):
         """
         Plot a 1D intensity profile.
         """
-        h5file = self.folderpath / filename
-        with h5py.File(h5file) as data:
-            int_data, q_data = get_i07_i_q_data(data)
-        while len(np.shape(q_data)) > 1:
-            q_data = q_data[0]
-        while len(np.shape(int_data)) > 1:
-            int_data = int_data[0]
-
-        # fig, ax = plot_1D_profile(q_data, int_data, title=filename, log_scale=log_scale)
-        fig.clear()
-        ax = fig.add_subplot(111)
-        ax.plot(q_data, int_data)
-        ax.set_xlabel("Q (A^-1)")
-        ax.set_ylabel("Intensity")
-        ax.set_title(filename)
-        label = None
-        qmin, qmax = None, None
-        if log_scale:
-            ax.set_yscale("log")
-        if qmin is not None and qmax is not None:
-            ax.set_xlim(qmin, qmax)
-        if label:
-            ax.legend()
-        return fig
+        axlabels = ["Intensity", "Q (A^-1)"]
+        return plot_1d_profile(
+            loaded_data, loaded_axis, filename, fig, ax, log_scale, axlabels
+        )
 
     def create_plot(self):
         # out = Output()  # persistent output area
@@ -212,6 +263,10 @@ class ind_list_plotter:
             options=self.filelist,
             description=f"{self.scantype} files",
         )
+        self.index1 = wg.IntSlider(max=10)
+        self.index2 = wg.IntSlider(max=10)
+        self.index1.style.handle_color = "lightblue"
+        self.index2.style.handle_color = "lightblue"
 
         @interact(
             scantype=wg.Dropdown(
@@ -222,8 +277,10 @@ class ind_list_plotter:
             log_scale=wg.Checkbox(value=False),
             fig=fixed(fig),
             ax=fixed(ax),
+            index1=self.index1,
+            index2=self.index2,
         )
-        def do_plot(scantype, filename, log_scale):
+        def do_plot(scantype, filename, log_scale, index1, index2):
             if self._updating:
                 return
             # out.clear_output()
@@ -231,17 +288,18 @@ class ind_list_plotter:
             self.set_scantype(scantype)
             files.options = self.filelist
             self._updating = False
-
+            self.index1.layout.visibility = "hidden"
+            self.index2.layout.visibility = "hidden"
             # SKIP invalid combinations when interact misfires
             if filename not in self.filelist:
                 filename = files.options[0]
-
+            h5file = self.folderpath / filename
+            with h5py.File(h5file) as data:
+                loaded_data, loaded_axis, index1, index2 = self._dataloader(
+                    data, index1, index2
+                )
             # your existing plot functions already draw correctly
-            self._plot_callback(filename, fig, ax, log_scale)
-
-            # display(fig)
-            # plt.draw()
-            # display(out)  # ✅ critical: ipympl REQUIRES this
+            self._plot_callback(loaded_data, loaded_axis, filename, fig, ax, log_scale)
 
         # display(VBox([out]))
 
@@ -250,9 +308,31 @@ class comparison_plotter:
     def __init__(self, datafolder: str):
         self.datafolder = Path(datafolder)
 
+    def plot_files(self, filenames: str, logscale=False):
+        if all(["IvsQ" in file for file in filenames]):
+            self.plot_ivsq(filenames, logscale)
+        elif all(["Qmap" in file for file in filenames]):
+            self.plot_qmap(filenames, logscale)
+        elif all(["exitmap" in file for file in filenames]):
+            self.plot_exitmap(filenames, logscale)
+
     def plot_ivsq(self, filenames: list, logscale=False):
         plotpaths = [self.datafolder / name for name in filenames]
-        compare_ivq_list(plotpaths, logscale)
+        self.compare_ivq_list(plotpaths, logscale)
+
+    def compare_ivq_list(paths: List[Path], logscale=False):
+        fig, ax = plt.subplots(figsize=(10, 5))
+        int_path = "integrations/Intensity"
+        q_path = "integrations/Q_angstrom^-1"
+        for path in paths:
+            with h5py.File(path) as h5data:
+                get_1d_data(h5data, [int_path, q_path], dataind)
+                plot_ivq_i07(h5data, path.name, (fig, ax), log=logscale)
+
+        if logscale:
+            ax.set_yscale("log")
+
+        fig.canvas.draw_idle()
 
     def plot_qmap(self, filenames: list, logscale=False):
         plotpaths = [self.datafolder / name for name in filenames]
@@ -274,120 +354,6 @@ class data_extractor:
             int_vals, q_vals = get_i07_i_q_data(h5data)
             outvals[testivqfile] = [int_vals, q_vals]
         return outvals
-
-
-class dummy_plotter:
-    def __init__(self, datafolder: str):
-        self.datafolder = Path(datafolder)
-
-    def plot_ivsq(self, option_values):
-        list_plot = DummyListPlotter(option_values, scantype="IvsQ")
-        list_plot.create_plot()
-
-
-class DummyListPlotter:
-    def __init__(self, options, scantype):
-        self.scantype = scantype
-        self.options = options
-
-    def _plot_callback(self, number):
-
-        if not hasattr(self, "fig"):
-            self.fig, self.ax = plt.subplots()
-            return
-        fig, ax = self.fig, self.ax
-        # Plot something simple
-        ax.clear()
-        ax.bar(2, number)
-        ax.set_title(f"{self.scantype} -> value {number}")
-        ax.set_xlabel("Q (A^-1)")
-
-        # ipympl: request redraw
-        # fig.canvas.draw_idle()
-        return fig
-
-    def create_plot(self):
-        # Create a fresh figure for ipympl (important)
-
-        # decorator-created UI
-        @interact
-        def do_plot(
-            number=wg.Dropdown(options=self.options, description=f"{self.scantype}:"),
-        ):
-            self._plot_callback(number)
-
-
-class dummy_list_plotter:
-    def __init__(self, scantype: str):
-        self.type = scantype
-
-    def create_plot(self):
-        # Dropdown
-        self.file_list = wg.Dropdown(
-            options=np.arange(0, 5, 1), description=f"{self.type} files"
-        )
-
-        # Output area for the figure
-        self.out = wg.Output()
-
-        # Create initial figure
-        with self.out:
-            self.fig, self.ax = plt.subplots()
-            self.ax.set_title("testing start")
-
-        # Link callback
-        self.file_list.observe(self.update_plot, names="value")
-
-        # Display UI
-        display(wg.VBox([self.file_list, self.out]))
-
-        # Trigger initial plot
-        self.update_plot({"new": self.file_list.value})
-
-    def update_plot(self, change):
-        number = change["new"]
-        if number is None:
-            return
-
-        # Update inside output area
-        with self.out:
-            self.ax.clear()
-            self.ax.bar(2, number)
-            self.ax.set_xlabel("Q (A^-1)")
-            self.fig.canvas.draw_idle()
-
-
-def plot_dummy_list(datafolder, type):
-
-    file_list = wg.Dropdown(options=np.arange(0, 5, 1), description=f"{type} files")
-
-    # # Create a separate figure for THIS instance
-    # fig, ax1 = plt.subplots(1, 1, figsize=(6, 3), dpi=100)
-
-    def update_plot(number):
-
-        if number in (None, "", "folder not found"):
-            return
-
-        fig, ax = plt.subplots()
-        fig, ax = plot_dummy_vals(number, [fig, ax])
-        fig.canvas.draw_idle()
-
-    plot_interact = wg.interactive_output(update_plot, {"number": file_list})
-
-    ui = wg.VBox([file_list, plot_interact])
-
-    display(ui)
-
-
-def plot_dummy_vals(number, figax):
-    if figax is None:
-        fig, ax = plt.subplots(1, 1, figsize=(8, 4))
-    else:
-        fig, ax = figax
-    ax.bar(2, number)
-    ax.set_xlabel("Q (A^-1)")
-    return fig, ax
 
 
 def parse_i07_giwaxs(data, title=None):
@@ -505,12 +471,6 @@ def plot_i07_list(dirpath: Path, scantype: str, title=None):
     display(ui)
 
 
-def get_i07_i_q_data(data):
-    int_data = np.array(data["integrations/Intensity"])
-    q_data = np.array(data["integrations/Q_angstrom^-1"])
-    return int_data, q_data
-
-
 def plot_ivq_i07(data, title, figax, log):
     int_data, q_data = get_i07_i_q_data(data)
     while len(np.shape(q_data)) > 1:
@@ -523,44 +483,6 @@ def plot_ivq_i07(data, title, figax, log):
     )
 
     return fig, ax
-
-
-def plot_1D_profile(
-    q,
-    intensity,
-    qmin=None,
-    qmax=None,
-    log_scale=False,
-    title="1D Profile",
-    label=None,
-    figax=None,
-):
-    """
-    Plot a 1D intensity profile.
-    """
-    if figax is None:
-        fig, ax = plt.subplots(1, 1, figsize=(8, 4))
-    else:
-        fig, ax = figax
-    ax.plot(q, intensity, label=label)
-    ax.set_xlabel("Q (A^-1)")
-    ax.set_ylabel("Intensity")
-    ax.set_title(title)
-    if log_scale:
-        ax.set_yscale("log")
-        # ax.set_xscale("log")
-    if qmin is not None and qmax is not None:
-        ax.set_xlim(qmin, qmax)
-    if label:
-        ax.legend()
-    return fig, ax
-
-
-def get_i07_qmap_data(data):
-    map2d = np.array(data["qpara_qperp/qpara_qperp_map"])
-    q_para = np.array(data["qpara_qperp/map_para"])
-    q_perp = -1 * np.array(data["qpara_qperp/map_perp"])
-    return map2d, q_para, q_perp
 
 
 def plot_qmap_i07(data, title, figax, log=False):
@@ -643,14 +565,6 @@ def plot_exitmap_i07(data, title, figax, log=False):
         )
     else:
         plot_2D_map(map2d, exit_para, exit_perp, title=title, figax=figax)
-
-
-def get_i07_exitmap_data(data):
-    map2d = np.array(data["exit_angles/exit_angles_map"])
-
-    exit_para = np.array(data["exit_angles/map_para"])
-    exit_perp = np.array(data["exit_angles/map_perp"])
-    return map2d, exit_para, exit_perp
 
 
 def plot_chi_profile(
@@ -1115,3 +1029,117 @@ if __name__ == "__main__":
 #     fig.update_layout(xaxis_title="exit angle para", yaxis_title="exit angle perp")
 #     # fig.update_xaxes(rangeslider_visible=True)
 #     fig.show()
+
+
+class dummy_plotter:
+    def __init__(self, datafolder: str):
+        self.datafolder = Path(datafolder)
+
+    def plot_ivsq(self, option_values):
+        list_plot = DummyListPlotter(option_values, scantype="IvsQ")
+        list_plot.create_plot()
+
+
+class DummyListPlotter:
+    def __init__(self, options, scantype):
+        self.scantype = scantype
+        self.options = options
+
+    def _plot_callback(self, number):
+
+        if not hasattr(self, "fig"):
+            self.fig, self.ax = plt.subplots()
+            return
+        fig, ax = self.fig, self.ax
+        # Plot something simple
+        ax.clear()
+        ax.bar(2, number)
+        ax.set_title(f"{self.scantype} -> value {number}")
+        ax.set_xlabel("Q (A^-1)")
+
+        # ipympl: request redraw
+        # fig.canvas.draw_idle()
+        return fig
+
+    def create_plot(self):
+        # Create a fresh figure for ipympl (important)
+
+        # decorator-created UI
+        @interact
+        def do_plot(
+            number=wg.Dropdown(options=self.options, description=f"{self.scantype}:"),
+        ):
+            self._plot_callback(number)
+
+
+class dummy_list_plotter:
+    def __init__(self, scantype: str):
+        self.type = scantype
+
+    def create_plot(self):
+        # Dropdown
+        self.file_list = wg.Dropdown(
+            options=np.arange(0, 5, 1), description=f"{self.type} files"
+        )
+
+        # Output area for the figure
+        self.out = wg.Output()
+
+        # Create initial figure
+        with self.out:
+            self.fig, self.ax = plt.subplots()
+            self.ax.set_title("testing start")
+
+        # Link callback
+        self.file_list.observe(self.update_plot, names="value")
+
+        # Display UI
+        display(wg.VBox([self.file_list, self.out]))
+
+        # Trigger initial plot
+        self.update_plot({"new": self.file_list.value})
+
+    def update_plot(self, change):
+        number = change["new"]
+        if number is None:
+            return
+
+        # Update inside output area
+        with self.out:
+            self.ax.clear()
+            self.ax.bar(2, number)
+            self.ax.set_xlabel("Q (A^-1)")
+            self.fig.canvas.draw_idle()
+
+
+def plot_dummy_list(datafolder, type):
+
+    file_list = wg.Dropdown(options=np.arange(0, 5, 1), description=f"{type} files")
+
+    # # Create a separate figure for THIS instance
+    # fig, ax1 = plt.subplots(1, 1, figsize=(6, 3), dpi=100)
+
+    def update_plot(number):
+
+        if number in (None, "", "folder not found"):
+            return
+
+        fig, ax = plt.subplots()
+        fig, ax = plot_dummy_vals(number, [fig, ax])
+        fig.canvas.draw_idle()
+
+    plot_interact = wg.interactive_output(update_plot, {"number": file_list})
+
+    ui = wg.VBox([file_list, plot_interact])
+
+    display(ui)
+
+
+def plot_dummy_vals(number, figax):
+    if figax is None:
+        fig, ax = plt.subplots(1, 1, figsize=(8, 4))
+    else:
+        fig, ax = figax
+    ax.bar(2, number)
+    ax.set_xlabel("Q (A^-1)")
+    return fig, ax
