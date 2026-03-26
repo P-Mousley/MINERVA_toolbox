@@ -40,8 +40,6 @@ def get_logger(folderpath, name):
 def plot_2d_map(loaded_data, loaded_axis, filename, fig, ax, log_scale, axlabels):
     map2d = loaded_data
     q_para, q_perp = loaded_axis
-    fig.clear()
-    ax = fig.add_subplot(111)
     cm = "viridis"
     vmax, vmin = None, None
     limits = None
@@ -72,26 +70,27 @@ def plot_2d_map(loaded_data, loaded_axis, filename, fig, ax, log_scale, axlabels
     return fig
 
 
-def plot_1d_profile(loaded_data, loaded_axis, filename, fig, ax, log_scale, axlabels):
+def plot_1d_profile(
+    loaded_data, loaded_axis, filename, fig, ax, log_scale, axlabels, label=None
+):
     """
     Plot a 1D intensity profile.
     """
     y_data = loaded_data
     x_data = loaded_axis
-    fig.clear()
-    ax = fig.add_subplot(111)
-    ax.plot(x_data, y_data)
+    ax.plot(x_data, y_data, label=label)
     ax.set_xlabel(axlabels[1])
     ax.set_ylabel(axlabels[0])
     ax.set_title(filename)
-    label = None
+
     qmin, qmax = None, None
     if log_scale:
         ax.set_yscale("log")
     if qmin is not None and qmax is not None:
         ax.set_xlim(qmin, qmax)
     if label:
-        ax.legend()
+        ax.set_title("")
+        ax.legend(loc="upper left", bbox_to_anchor=(0.1, 1.15))
     return fig
 
 
@@ -109,25 +108,28 @@ def get_2d_data(data, paths, dataind, axisind):
 
 
 def check_shape(inshape, expected_shape, index1, index2):
+
     if len(inshape) == expected_shape:
-        ind1max = 0
-        ind2max = 0
+        ind1max = np.int32(0)
+        ind2max = np.int32(0)
         outind = slice(None)
 
     if len(inshape) == expected_shape + 1:
         ind1max = inshape[0] - 1
-        ind2max = 0
+        ind2max = np.int32(0)
         if index1 > ind1max:
-            index1 = 0
+            index1 = np.int32(0)
         outind = (index1, slice(None))
+
     if len(inshape) == expected_shape + 2:
         ind1max = inshape[0] - 1
         ind2max = inshape[1] - 1
         if index1 > ind1max:
-            index1 = 0
+            index1 = np.int32(0)
         if index2 > ind2max:
-            index2 = 0
+            index2 = np.int32(0)
         outind = (index1, index2, slice(None))
+
     return outind, index1, index2, ind1max, ind2max
 
 
@@ -135,9 +137,6 @@ class individual_plotter:
     def __init__(self, datafolder: str):
         self.datafolder = Path(datafolder)
         self.plot_multi_data()
-        plt.ioff()
-        plt.close("all")
-        plt.ion()
 
     def plot_multi_data(self):
         list_plotter_multi = ind_list_plotter(self.datafolder)
@@ -291,6 +290,8 @@ class ind_list_plotter:
             self.set_scantype(scantype)
             files.options = self.filelist
             self._updating = False
+            fig.clear()
+            ax = fig.add_subplot(111)
             self.index1.layout.visibility = "hidden"
             self.index2.layout.visibility = "hidden"
 
@@ -309,41 +310,68 @@ class ind_list_plotter:
 
 
 class comparison_plotter:
-    def __init__(self, datafolder: str):
+    def __init__(
+        self,
+        datafolder: str,
+    ):
         self.datafolder = Path(datafolder)
 
     def plot_files(
-        self, filenames: str, logscale=False, index1: int = 0, index2: int = 0
+        self,
+        filenames: str,
+        logscale=False,
+        index1vals: np.ndarray | None = None,
+        index2vals: np.ndarray | None = None,
     ):
         if all(["IvsQ" in file for file in filenames]):
-            self.plot_ivsq(filenames, index1, index2, logscale)
+            self.plot_ivsq(filenames, index1vals, index2vals, logscale)
         elif all(["Qmap" in file for file in filenames]):
             self.plot_qmap(filenames, logscale)
         elif all(["exitmap" in file for file in filenames]):
             self.plot_exitmap(filenames, logscale)
 
-    def plot_ivsq(self, filenames: list, index1: int, index2: int, logscale: bool):
+    def plot_ivsq(
+        self,
+        filenames: list,
+        index1vals: np.ndarray | None = None,
+        index2vals: np.ndarray | None = None,
+        logscale: bool = False,
+    ):
         plotpaths = [self.datafolder / name for name in filenames]
-
+        if index1vals is None:
+            index1vals = np.zeros(len(plotpaths)).astype(np.int32)
+        if index2vals is None:
+            index2vals = np.zeros(len(plotpaths)).astype(np.int32)
         fig, ax = plt.subplots(figsize=(10, 5))
         int_path = "integrations/Intensity"
         q_path = "integrations/Q_angstrom^-1"
-        for path in plotpaths:
+        for path_n, path in enumerate(plotpaths):
+            index1 = index1vals[path_n]
+            index2 = index2vals[path_n]
             with h5py.File(path) as h5data:
                 int_path = "integrations/Intensity"
                 q_path = "integrations/Q_angstrom^-1"
                 y_shape = np.shape(h5data[int_path])
                 x_shape = np.shape(h5data[q_path])
                 expected_shape = np.int32(1)
-                dataind, index1, index2, ind1max, ind2max = check_shape(
+                dataind, index1, index2, *_ = check_shape(
                     y_shape, expected_shape, index1, index2
                 )
                 axisind, *_ = check_shape(x_shape, expected_shape, index1, index2)
                 y_out, x_out = get_1d_data(h5data, [int_path, q_path], dataind, axisind)
                 axlabels = ["Intensity", "Q (A^-1)"]
-                plot_1d_profile(y_out, x_out, path, fig, ax, logscale, axlabels)
+                plot_1d_profile(
+                    y_out,
+                    x_out,
+                    path,
+                    fig,
+                    ax,
+                    logscale,
+                    axlabels,
+                    label=f"{filenames[path_n]} {index1} {index2}",
+                )
 
-        fig.canvas.draw_idle()
+        # fig.canvas.draw_idle()
 
     def plot_qmap(self, filenames: list, logscale=False):
         plotpaths = [self.datafolder / name for name in filenames]
