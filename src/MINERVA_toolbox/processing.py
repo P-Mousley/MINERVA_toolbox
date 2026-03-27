@@ -115,27 +115,27 @@ class data_loader:
     def check_shape(self, inshape, expected_shape, index1, index2):
 
         if len(inshape) == expected_shape:
+            ind0max = np.int32(0)
             ind1max = np.int32(0)
-            ind2max = np.int32(0)
             outind = slice(None)
 
         if len(inshape) == expected_shape + 1:
-            ind1max = inshape[0] - 1
-            ind2max = np.int32(0)
+            ind0max = inshape[0] - 1
+            ind1max = np.int32(0)
             if index1 > ind1max:
                 index1 = np.int32(0)
             outind = (index1, slice(None))
 
         if len(inshape) == expected_shape + 2:
-            ind1max = inshape[0] - 1
-            ind2max = inshape[1] - 1
-            if index1 > ind1max:
+            ind0max = inshape[0] - 1
+            ind1max = inshape[1] - 1
+            if index1 > ind0max:
                 index1 = np.int32(0)
-            if index2 > ind2max:
+            if index2 > ind1max:
                 index2 = np.int32(0)
             outind = (index1, index2, slice(None))
 
-        return outind, index1, index2, ind1max, ind2max
+        return outind, index1, index2, ind1max, ind0max
 
     def get_1d_data(self, data, paths, dataind, axisind):
         y_out = data[paths[0]][dataind]
@@ -155,7 +155,7 @@ class data_loader:
             y_shape = np.shape(h5data[paths[0]])
             x_shape = np.shape(h5data[paths[1]])
             expected_shape = np.int32(1)
-            dataind, index1, index2, indmax1, indmax2 = self.check_shape(
+            dataind, index1, index2, indmax2, indmax1 = self.check_shape(
                 y_shape, expected_shape, index1, index2
             )
             axisind, *_ = self.check_shape(x_shape, expected_shape, index1, index2)
@@ -171,7 +171,7 @@ class data_loader:
             perp_shape = np.shape(h5data[paths[2]])
             assert len(para_shape) == len(perp_shape)
 
-            dataind, index1, index2, indmax1, indmax2 = self.check_shape(
+            dataind, index1, index2, indmax2, indmax1 = self.check_shape(
                 map2d_shape,
                 np.int32(2),
                 index1,

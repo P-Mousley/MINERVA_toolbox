@@ -122,7 +122,7 @@ class ind_list_plotter:
         # )
 
     def get_files(self):
-        return [f for f in os.listdir(self.folderpath) if self.scantype in f]
+        return [f for f in os.listdir(self.folderpath) if (self.scantype in f )and (f.endswith('.hdf5'))]
 
     def set_plot_callback(self):
         callback_dict = {
@@ -216,6 +216,12 @@ class ind_list_plotter:
             # out.clear_output()
             self._updating = True
             self.set_scantype(scantype)
+            if len(self.filelist)==0:
+                files.options=['No files found']
+                fig.clear()
+                self._updating = False
+                return
+            
             files.options = self.filelist
             self._updating = False
             fig.clear()
