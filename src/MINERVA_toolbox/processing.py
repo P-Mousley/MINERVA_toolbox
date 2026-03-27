@@ -53,9 +53,42 @@ def peakfit_and_plot(peaklist, x, y):
     ax1.legend()
     result.plot_residuals(ax=ax2)
     plt.tight_layout()
-    plt.show()
+    # plt.show()
 
     return result
+
+
+# peak2 = fit_models[fit_type](prefix='p2_')
+def fit_peaks(peaklist: list, x: np.ndarray, y: np.ndarray, background=None):
+
+    fit_models = {
+        "pvoigt": PseudoVoigtModel,
+        "gaussian": GaussianModel,
+        "lorentzian": LorentzianModel,
+        "split_lorentzian": SplitLorentzianModel,
+        "skewed_gaussian": SkewedGaussianModel,
+    }
+    if background is None:
+        background = LinearModel(prefix="bkg_")
+    mod = background
+    par_settings = []
+    for ind, peak in enumerate(peaklist):
+        peakprefix = f"p{ind + 1}_"
+        mod += fit_models[peak["type"]](prefix=peakprefix)
+        par_settings += parse_peak_kwargs(peak["settings"], peakprefix)
+
+    pars = mod.make_params()
+
+    pars["bkg_intercept"].set(y.min())
+    pars["bkg_slope"].set(10)
+    for par in par_settings:
+        pars[par[0]].set(par[1], min=par[2], max=par[3])
+    result = mod.fit(y, pars, x=x)
+    xnew = np.arange(x.min(), x.max(), 0.001)
+    comps = result.eval_components(x=xnew)
+    y_fit = result.best_fit
+
+    return result, comps, y_fit, xnew
 
 
 class result2d:
@@ -112,7 +145,7 @@ class data_loader:
     def get_2d_data(self, data, paths, dataind, axisind):
         dataout = data[paths[0]][dataind]
         para_out = data[paths[1]][axisind]
-        perp_out = data[paths[2]][axisind]
+        perp_out = -1 * data[paths[2]][axisind]
         return result2d(data=dataout, x_axis=para_out, y_axis=perp_out)
 
     def read_1d_datafile(
@@ -151,6 +184,7 @@ class data_loader:
                 index2,
             )
             result = self.get_2d_data(h5data, paths, dataind, axisind)
+
         return result, index1, index2, indmax1, indmax2
 
     def get_ivsq(
@@ -205,37 +239,35 @@ class data_loader:
             filepath, [mappath, para_path, perp_path], index1, index2
         )
 
+    def parse_loader(self, filename):
+        loaders_dict = {
+            "IvsQ": self.get_ivsq,
+            "Qmap": self.get_qmap,
+            "exitmap": self.get_exitmap,
+        }
+        for k, v in loaders_dict.items():
+            if k in filename:
+                return v
+        print("scan type not found in filename")
 
-# peak2 = fit_models[fit_type](prefix='p2_')
-def fit_peaks(peaklist, x, y):
-
-    fit_models = {
-        "pvoigt": PseudoVoigtModel,
-        "gaussian": GaussianModel,
-        "lorentzian": LorentzianModel,
-        "split_lorentzian": SplitLorentzianModel,
-        "skewed_gaussian": SkewedGaussianModel,
-    }
-    background = LinearModel(prefix="bkg_")
-    mod = background
-    par_settings = []
-    for ind, peak in enumerate(peaklist):
-        peakprefix = f"p{ind + 1}_"
-        mod += fit_models[peak["type"]](prefix=peakprefix)
-        par_settings += parse_peak_kwargs(peak["settings"], peakprefix)
-
-    pars = mod.make_params()
-
-    pars["bkg_intercept"].set(y.min())
-    pars["bkg_slope"].set(10)
-    for par in par_settings:
-        pars[par[0]].set(par[1], min=par[2], max=par[3])
-    result = mod.fit(y, pars, x=x)
-    xnew = np.arange(x.min(), x.max(), 0.001)
-    comps = result.eval_components(x=xnew)
-    y_fit = result.best_fit
-
-    return result, comps, y_fit, xnew
+    def loadfiles(
+        self,
+        filenames: str,
+        index1vals: np.ndarray | None = None,
+        index2vals: np.ndarray | None = None,
+    ):
+        if index1vals is None:
+            index1vals = np.zeros(len(filenames)).astype(np.int32)
+        if index2vals is None:
+            index2vals = np.zeros(len(filenames)).astype(np.int32)
+        results = []
+        for file_num, file in enumerate(filenames):
+            index1 = index1vals[file_num]
+            index2 = index2vals[file_num]
+            loader = self.parse_loader(file)
+            result, *_ = loader(file, index1, index2)
+            results.append(result)
+        return results
 
 
 if __name__ == "__main__":

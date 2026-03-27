@@ -165,7 +165,7 @@ class ind_list_plotter:
         axlabels = ["$exitangle_{para}$  [deg]", "$exitangle_{perp}$  [deg]"]
         return plot_2d_map(
             data_result.data,
-            [data_result.x_axis, -1 * data_result.y_axis],
+            [data_result.x_axis, data_result.y_axis],
             filename,
             fig,
             ax,
@@ -250,7 +250,13 @@ class comparison_plotter:
         reset_plots()
         self.datafolder = Path(datafolder)
 
-    def plot_files(self, filenames, index1vals, index2vals, logscale):
+    def plot_files(
+        self,
+        filenames: list,
+        index1vals: np.ndarray | None = None,
+        index2vals: np.ndarray | None = None,
+        logscale=False,
+    ):
         combo_file_plotter = combo_plotter(self.datafolder)
         combo_file_plotter.plot_files(filenames, index1vals, index2vals, logscale)
 
@@ -266,7 +272,7 @@ class combo_plotter:
 
     def plot_files(
         self,
-        filenames: str,
+        filenames: list,
         index1vals: np.ndarray | None = None,
         index2vals: np.ndarray | None = None,
         logscale=False,
@@ -337,6 +343,7 @@ class combo_plotter:
                 logscale,
                 axlabels,
             )
+        plt.tight_layout()
 
     def plot_qmap(
         self,
@@ -368,6 +375,7 @@ class combo_plotter:
                 logscale,
                 axlabels,
             )
+        plt.tight_layout()
 
 
 def plot_i07_list(dirpath: Path, scantype: str, title=None):
