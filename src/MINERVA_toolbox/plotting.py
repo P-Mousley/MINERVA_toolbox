@@ -14,7 +14,7 @@ from IPython.display import display
 from ipywidgets import fixed, interact
 from matplotlib.colors import LogNorm, Normalize
 
-from MINERVA_toolbox.processing import fit_peaks
+from MINERVA_toolbox.processing import data_loader, result1d, result2d
 
 
 def get_logger(folderpath, name):
@@ -37,7 +37,7 @@ def get_logger(folderpath, name):
     return logger
 
 
-def plot_2d_map(loaded_data, loaded_axis, filename, fig, ax, log_scale, axlabels):
+def plot_2d_map(loaded_data, loaded_axis, filename, fig, ax, logscale, axlabels):
     map2d = loaded_data
     q_para, q_perp = loaded_axis
     cm = "viridis"
@@ -48,7 +48,7 @@ def plot_2d_map(loaded_data, loaded_axis, filename, fig, ax, log_scale, axlabels
         vmax = np.mean(map2d) + 2 * np.std(map2d)
     if vmin is None:
         vmin = np.max(np.array([map2d.min(), 0.01]))
-    if log_scale:
+    if logscale:
         normvals = LogNorm(vmin=vmin, vmax=vmax)
     else:
         normvals = Normalize(vmin=vmin, vmax=vmax)
@@ -71,7 +71,7 @@ def plot_2d_map(loaded_data, loaded_axis, filename, fig, ax, log_scale, axlabels
 
 
 def plot_1d_profile(
-    loaded_data, loaded_axis, filename, fig, ax, log_scale, axlabels, label=None
+    loaded_data, loaded_axis, filename, fig, ax, logscale, axlabels, label=None
 ):
     """
     Plot a 1D intensity profile.
@@ -84,7 +84,7 @@ def plot_1d_profile(
     ax.set_title(filename)
 
     qmin, qmax = None, None
-    if log_scale:
+    if logscale:
         ax.set_yscale("log")
     if qmin is not None and qmax is not None:
         ax.set_xlim(qmin, qmax)
@@ -133,12 +133,18 @@ def check_shape(inshape, expected_shape, index1, index2):
     return outind, index1, index2, ind1max, ind2max
 
 
+def reset_plots():
+    plt.close("all")
+    wg.Widget.close_all()
+
+
 class individual_plotter:
     def __init__(self, datafolder: str):
+        reset_plots()
         self.datafolder = Path(datafolder)
-        self.plot_multi_data()
+        self.plot_list_data()
 
-    def plot_multi_data(self):
+    def plot_list_data(self):
         list_plotter_multi = ind_list_plotter(self.datafolder)
         list_plotter_multi.create_plot()
 
@@ -147,6 +153,7 @@ class ind_list_plotter:
     def __init__(self, folderpath):
         self._updating = False
         self.folderpath = folderpath
+        self.loader = data_loader(folderpath)
 
         # self.logger = self.logger = get_logger(
         #     self.folderpath, name=f"ind_list_plotter_{id(self)}"
@@ -163,67 +170,11 @@ class ind_list_plotter:
         }
         self._plot_callback = callback_dict[self.scantype]
 
-    def check_shape_index(self, datashape, axis_shape, expected_shape, index1, index2):
-
-        dataind, index1, index2, ind1max, ind2max = check_shape(
-            datashape, expected_shape, index1, index2
-        )
-
-        axisind, *_ = check_shape(axis_shape, expected_shape, index1, index2)
-        self.index1.max = ind1max
-        self.index2.max = ind2max
-        self.index1.layout.visibility = "hidden" if ind1max == 0 else "visible"
-        self.index2.layout.visibility = "hidden" if ind2max == 0 else "visible"
-        return dataind, axisind, index1, index2
-
-    def _checkget_1d_data(self, data, paths, index1, index2):
-        y_shape = np.shape(data[paths[0]])
-        x_shape = np.shape(data[paths[1]])
-        dataind, axisind, index1, index2 = self.check_shape_index(
-            y_shape, x_shape, np.int32(1), index1, index2
-        )
-        y_out, x_out = get_1d_data(data, paths, dataind, axisind)
-        return y_out, x_out, index1, index2
-
-    def _get_i07_i_q_data(self, data, index1, index2):
-        int_path = "integrations/Intensity"
-        q_path = "integrations/Q_angstrom^-1"
-        return self._checkget_1d_data(data, [int_path, q_path], index1, index2)
-
-    def _checkget_2d_data(self, data, paths, index1, index2):
-        map2d_shape = np.shape(data[paths[0]])
-        para_shape = np.shape(data[paths[1]])
-        perp_shape = np.shape(data[paths[2]])
-        assert len(para_shape) == len(perp_shape)
-
-        dataind, axisind, index1, index2 = self.check_shape_index(
-            map2d_shape, np.array([para_shape, perp_shape]), np.int32(2), index1, index2
-        )
-        dataout, axisout = get_2d_data(data, paths, dataind, axisind)
-        return dataout, axisout, index1, index2
-
-    def _get_i07_qmap_data(self, data, index1, index2):
-        mappath = "qpara_qperp/qpara_qperp_map"
-        para_path = "qpara_qperp/map_para"
-        perp_path = "qpara_qperp/map_perp"
-
-        return self._checkget_2d_data(
-            data, [mappath, para_path, perp_path], index1, index2
-        )
-
-    def _get_i07_exitmap_data(self, data, index1, index2):
-        mappath = "exit_angles/exit_angles_map"
-        para_path = "exit_angles/map_para"
-        perp_path = "exit_angles/map_perp"
-        return self._checkget_2d_data(
-            data, [mappath, para_path, perp_path], index1, index2
-        )
-
     def set_dataloader(self):
         loaders_dict = {
-            "IvsQ": self._get_i07_i_q_data,
-            "Qmap": self._get_i07_qmap_data,
-            "exitmap": self._get_i07_exitmap_data,
+            "IvsQ": self.loader.get_ivsq,
+            "Qmap": self.loader.get_qmap,
+            "exitmap": self.loader.get_exitmap,
         }
         self._dataloader = loaders_dict[self.scantype]
 
@@ -233,28 +184,43 @@ class ind_list_plotter:
         self.set_plot_callback()
         self.set_dataloader()
 
-    def _plot_qmap(self, loaded_data, loaded_axis, filename, fig, ax, log_scale):
+    def _plot_qmap(self, data_result: result2d, filename: str, fig, ax, logscale: bool):
         axlabels = ["$_{para}$  [Å⁻¹]", "$q_{perp}$  [Å⁻¹]"]
         return plot_2d_map(
-            loaded_data, loaded_axis, filename, fig, ax, log_scale, axlabels
+            data_result.data,
+            [data_result.x_axis, data_result.y_axis],
+            filename,
+            fig,
+            ax,
+            logscale,
+            axlabels,
         )
 
-    def _plot_exitmap(self, loaded_data, loaded_axis, filename, fig, ax, log_scale):
-        factors = np.array([1, -1])
-        factor_cols = factors[:, None]
-        loaded_axis *= factor_cols
+    def _plot_exitmap(
+        self, data_result: result2d, filename: str, fig, ax, logscale: bool
+    ):
+
         axlabels = ["$exitangle_{para}$  [deg]", "$exitangle_{perp}$  [deg]"]
         return plot_2d_map(
-            loaded_data, loaded_axis, filename, fig, ax, log_scale, axlabels
+            data_result.data,
+            [data_result.x_axis, -1 * data_result.y_axis],
+            filename,
+            fig,
+            ax,
+            logscale,
+            axlabels,
         )
 
-    def _plot_ivsq(self, loaded_data, loaded_axis, filename, fig, ax, log_scale):
-        """
-        Plot a 1D intensity profile.
-        """
+    def _plot_ivsq(self, data_result: result1d, filename, fig, ax, logscale):
         axlabels = ["Intensity", "Q (A^-1)"]
         return plot_1d_profile(
-            loaded_data, loaded_axis, filename, fig, ax, log_scale, axlabels
+            data_result.data,
+            data_result.x_axis,
+            filename,
+            fig,
+            ax,
+            logscale,
+            axlabels,
         )
 
     def create_plot(self):
@@ -276,13 +242,13 @@ class ind_list_plotter:
                 description="scantype",
             ),
             filename=files,
-            log_scale=wg.Checkbox(value=False),
+            logscale=wg.Checkbox(value=False),
             fig=fixed(fig),
             ax=fixed(ax),
             index1=self.index1,
             index2=self.index2,
         )
-        def do_plot(scantype, filename, log_scale, index1, index2):
+        def do_plot(scantype, filename, logscale, index1, index2):
             if self._updating:
                 return
             # out.clear_output()
@@ -298,13 +264,17 @@ class ind_list_plotter:
             # SKIP invalid combinations when interact misfires
             if filename not in self.filelist:
                 filename = files.options[0]
-            h5file = self.folderpath / filename
-            with h5py.File(h5file) as data:
-                loaded_data, loaded_axis, index1, index2 = self._dataloader(
-                    data, index1, index2
-                )
+            # h5file = self.folderpath / filename
+            # with h5py.File(h5file) as data:
+            result, index1, index2, indmax1, indmax2 = self._dataloader(
+                filename, index1, index2
+            )
+            self.index1.max = indmax1
+            self.index2.max = indmax2
+            self.index1.layout.visibility = "hidden" if indmax1 == 0 else "visible"
+            self.index2.layout.visibility = "hidden" if indmax2 == 0 else "visible"
             # your existing plot functions already draw correctly
-            self._plot_callback(loaded_data, loaded_axis, filename, fig, ax, log_scale)
+            self._plot_callback(result, filename, fig, ax, logscale)
 
         # display(VBox([out]))
 
@@ -314,21 +284,36 @@ class comparison_plotter:
         self,
         datafolder: str,
     ):
+        reset_plots()
         self.datafolder = Path(datafolder)
+
+    def plot_files(self, filenames, index1vals, index2vals, logscale):
+        combo_file_plotter = combo_plotter(self.datafolder)
+        combo_file_plotter.plot_files(filenames, index1vals, index2vals, logscale)
+
+
+class combo_plotter:
+    def __init__(
+        self,
+        datafolder: str,
+    ):
+        reset_plots()
+        self.datafolder = Path(datafolder)
+        self.loader = data_loader(datafolder)
 
     def plot_files(
         self,
         filenames: str,
-        logscale=False,
         index1vals: np.ndarray | None = None,
         index2vals: np.ndarray | None = None,
+        logscale=False,
     ):
         if all(["IvsQ" in file for file in filenames]):
             self.plot_ivsq(filenames, index1vals, index2vals, logscale)
         elif all(["Qmap" in file for file in filenames]):
-            self.plot_qmap(filenames, logscale)
+            self.plot_qmap(filenames, index1vals, index2vals, logscale)
         elif all(["exitmap" in file for file in filenames]):
-            self.plot_exitmap(filenames, logscale)
+            self.plot_exitmap(filenames, index1vals, index2vals, logscale)
 
     def plot_ivsq(
         self,
@@ -337,62 +322,102 @@ class comparison_plotter:
         index2vals: np.ndarray | None = None,
         logscale: bool = False,
     ):
-        plotpaths = [self.datafolder / name for name in filenames]
+        # plotpaths = [self.datafolder / name for name in filenames]
+        axlabels = ["Intensity", "Q (A^-1)"]
         if index1vals is None:
-            index1vals = np.zeros(len(plotpaths)).astype(np.int32)
+            index1vals = np.zeros(len(filenames)).astype(np.int32)
         if index2vals is None:
-            index2vals = np.zeros(len(plotpaths)).astype(np.int32)
-        fig, ax = plt.subplots(figsize=(10, 5))
-        int_path = "integrations/Intensity"
-        q_path = "integrations/Q_angstrom^-1"
-        for path_n, path in enumerate(plotpaths):
-            index1 = index1vals[path_n]
-            index2 = index2vals[path_n]
-            with h5py.File(path) as h5data:
-                int_path = "integrations/Intensity"
-                q_path = "integrations/Q_angstrom^-1"
-                y_shape = np.shape(h5data[int_path])
-                x_shape = np.shape(h5data[q_path])
-                expected_shape = np.int32(1)
-                dataind, index1, index2, *_ = check_shape(
-                    y_shape, expected_shape, index1, index2
-                )
-                axisind, *_ = check_shape(x_shape, expected_shape, index1, index2)
-                y_out, x_out = get_1d_data(h5data, [int_path, q_path], dataind, axisind)
-                axlabels = ["Intensity", "Q (A^-1)"]
-                plot_1d_profile(
-                    y_out,
-                    x_out,
-                    path,
-                    fig,
-                    ax,
-                    logscale,
-                    axlabels,
-                    label=f"{filenames[path_n]} {index1} {index2}",
-                )
+            index2vals = np.zeros(len(filenames)).astype(np.int32)
+        self.fig, self.ax = plt.subplots(figsize=(10, 5))
+        for file_num, file in enumerate(filenames):
+            index1 = index1vals[file_num]
+            index2 = index2vals[file_num]
+            result, *_ = self.loader.get_ivsq(file, index1, index2)
+
+            plot_1d_profile(
+                result.data,
+                result.x_axis,
+                file,
+                self.fig,
+                self.ax,
+                logscale,
+                axlabels,
+                label=f"{filenames[file_num]} {index1} {index2}",
+            )
 
         # fig.canvas.draw_idle()
 
-    def plot_qmap(self, filenames: list, logscale=False):
-        plotpaths = [self.datafolder / name for name in filenames]
-        compare_qmap_list(plotpaths, logscale)
+    def plot_exitmap(
+        self,
+        filenames: list,
+        index1vals: np.ndarray | None = None,
+        index2vals: np.ndarray | None = None,
+        logscale: bool = False,
+    ):
+        axlabels = ["$exitangle_{para}$  [deg]", "$exitangle_{perp}$  [deg]"]
+        if index1vals is None:
+            index1vals = np.zeros(len(filenames)).astype(np.int32)
+        if index2vals is None:
+            index2vals = np.zeros(len(filenames)).astype(np.int32)
+        fig, ax = plt.subplots(figsize=(10, 5))
+        for file_num, filename in enumerate(filenames):
+            index1 = index1vals[file_num]
+            index2 = index2vals[file_num]
 
-    def plot_exitmap(self, filenames: list, logscale=False):
-        plotpaths = [self.datafolder / name for name in filenames]
-        compare_exitmap_list(plotpaths, logscale)
+            result, *_ = self.loader.get_exitmap(filename, index1, index2)
+            plot_2d_map(
+                result.data,
+                [result.x_axis, result.y_axis],
+                filename,
+                fig,
+                ax,
+                logscale,
+                axlabels,
+            )
+
+    def plot_qmap(
+        self,
+        filenames: list,
+        index1vals: np.ndarray | None = None,
+        index2vals: np.ndarray | None = None,
+        logscale: bool = False,
+    ):
+
+        axlabels = ["$q_{para}$  [Å⁻¹]", "$q_{perp}$  [Å⁻¹]"]
+        if index1vals is None:
+            index1vals = np.zeros(len(filenames)).astype(np.int32)
+        if index2vals is None:
+            index2vals = np.zeros(len(filenames)).astype(np.int32)
+        row_num = int(np.ceil(len(filenames) / 2))
+        fig, axs = plt.subplots(row_num, 2, figsize=(10, 5 * row_num))
+        axlist = axs.flatten()
+        for file_num, filename in enumerate(filenames):
+            index1 = index1vals[file_num]
+            index2 = index2vals[file_num]
+
+            result, *_ = self.loader.get_qmap(filename, index1, index2)
+            plot_2d_map(
+                result.data,
+                [result.x_axis, result.y_axis],
+                filename,
+                fig,
+                axlist[file_num],
+                logscale,
+                axlabels,
+            )
 
 
-class data_extractor:
-    def __init__(self, datafolder: str):
-        self.datafolder = Path(datafolder)
+# class data_loader:
+#     def __init__(self, datafolder: str):
+#         self.datafolder = Path(datafolder)
 
-    def get_ivsq(self, filenames: list):
-        outvals = dict()
-        for i, testivqfile in enumerate(filenames):
-            h5data = h5py.File(self.datafolder / testivqfile)
-            int_vals, q_vals = get_i07_i_q_data(h5data)
-            outvals[testivqfile] = [int_vals, q_vals]
-        return outvals
+#     def get_ivsq(self, filenames: list):
+#         outvals = dict()
+#         for i, testivqfile in enumerate(filenames):
+#             h5data = h5py.File(self.datafolder / testivqfile)
+#             int_vals, q_vals = get_i07_i_q_data(h5data)
+#             outvals[testivqfile] = [int_vals, q_vals]
+#         return outvals
 
 
 def parse_i07_giwaxs(data, title=None):
@@ -486,7 +511,7 @@ def plot_i07_list(dirpath: Path, scantype: str, title=None):
 
     folder_interact = wg.interactive_output(update_list, {"folder": folder_text})
 
-    def update_plot(filename, log_scale):
+    def update_plot(filename, logscale):
 
         if filename in (None, "", "folder not found"):
             return
@@ -497,12 +522,12 @@ def plot_i07_list(dirpath: Path, scantype: str, title=None):
 
         with h5py.File(h5file) as data:
             outfunc, title = parse_i07_giwaxs(data, h5file.stem)
-            fig, ax = outfunc(data, title, figax=[fig, ax], log=log_scale)
+            fig, ax = outfunc(data, title, figax=[fig, ax], log=logscale)
         return fig
 
     log_box = wg.Checkbox(value=False, description="Log y-scale")
     plot_interact = wg.interactive_output(
-        update_plot, {"filename": file_list, "log_scale": log_box}
+        update_plot, {"filename": file_list, "logscale": log_box}
     )
 
     ui = wg.VBox([folder_interact, file_list, log_box, plot_interact])
@@ -518,7 +543,7 @@ def plot_ivq_i07(data, title, figax, log):
         int_data = int_data[0]
     # wg.interact(plot_1D_profile,q=q_data,intensity=int_data,title=title,ax=ax)
     fig, ax = plot_1D_profile(
-        q=q_data, intensity=int_data, title=title, figax=figax, log_scale=log
+        q=q_data, intensity=int_data, title=title, figax=figax, logscale=log
     )
 
     return fig, ax
@@ -611,7 +636,7 @@ def plot_chi_profile(
     intensity,
     chi_min=None,
     chi_max=None,
-    log_scale=False,
+    logscale=False,
     title="Chi Profile",
     label=None,
 ):
@@ -628,44 +653,6 @@ def plot_chi_profile(
     if label:
         plt.legend()
     plt.show()
-
-
-def peakfit_and_plot(peaklist, x, y):
-    # pars += peak2.guess(y, x=x)
-
-    result, comps, y_fit, xnew = fit_peaks(peaklist, x, y)
-
-    fig, (ax1, ax2) = plt.subplots(
-        2, 1, figsize=(8, 4), sharex=True, gridspec_kw={"height_ratios": [3, 1]}
-    )
-    # ax1.plot(x, y, "k.", ms=3, label="Data")
-    # ax1.plot(x, y_fit, "r-", lw=2, label="Total fit")
-    result.plot_fit(ax=ax1)
-
-    # individual components
-    ax1.plot(
-        xnew, comps["bkg_"], color="tab:blue", ls="--", lw=2, label="Background (bkg_)"
-    )
-    for pnum in np.arange(len(peaklist)) + 1:
-        ax1.plot(
-            xnew,
-            comps[f"p{pnum}_"],
-            color="tab:green",
-            lw=2,
-            label=f"Peak {pnum} (p{pnum}_)",
-        )
-    ax1.legend()
-    # ax1.plot(xnew, comps['p2_'], color='tab:orange', lw=2, label='Peak 2 (p2_)')
-    # ax1.plot(xnew,(comps['{}'.format(fit_type)]))
-    # ax1.plot(xnew,(comps['line_']))
-    # ax1.plot(xnew,(comps['p1_{}'.format(fit_type)]+comps['line_']))
-    # ax2.plot(x, result.residual)
-    # ax2.set_title("residuals")
-    result.plot_residuals(ax=ax2)
-    plt.tight_layout()
-    plt.show()
-
-    return result
 
 
 def plot_contour(csv_file, outfile, cmap="viridis", levels=100, figsize=(10, 6)):
@@ -724,7 +711,7 @@ def plot_i07_list_old(dirpath: Path, scantype: str, title=None):
     # --- Plotting callback ---
     fig, ax1 = plt.subplots(1, 1, figsize=(6, 3), dpi=100)
 
-    def update_plot(filename, log_scale):
+    def update_plot(filename, logscale):
         if filename == "folder not found":
             return
         remove_axes(fig)
@@ -734,13 +721,13 @@ def plot_i07_list_old(dirpath: Path, scantype: str, title=None):
 
         with h5py.File(h5file) as data:
             outfunc, title = parse_i07_giwaxs(data, h5file.stem)
-            outfunc(data, title, figax=[fig, ax1], log=log_scale)
+            outfunc(data, title, figax=[fig, ax1], log=logscale)
             plt.show()
 
         fig.canvas.draw_idle()
 
     log_box = wg.Checkbox(value=False, description="Log y-scale")
-    wg.interact(update_plot, filename=file_list, log_scale=log_box)
+    wg.interact(update_plot, filename=file_list, logscale=log_box)
 
 
 def plot_i07_list_colab(dirpath: Path, scantype: str, title=None):
@@ -910,10 +897,10 @@ def view_2D_image(img_data, cmap="viridis", flip_vertical=False, flip_horizontal
 
     # Update function -----------------------------------------------------------
 
-    def update(vmin, vmax, log_scale):
+    def update(vmin, vmax, logscale):
         plt.figure(figsize=(7, 7))
 
-        if log_scale:
+        if logscale:
             # Avoid non-positive values for LogNorm
             safe_data = np.clip(data, a_min=1e-12, a_max=None)
             norm = LogNorm(vmin=max(vmin, 1e-12), vmax=vmax)
@@ -927,7 +914,7 @@ def view_2D_image(img_data, cmap="viridis", flip_vertical=False, flip_horizontal
 
     # Connect widgets  to updater
     out = wg.interactive_output(
-        update, {"vmin": vmin_slider, "vmax": vmax_slider, "log_scale": log_box}
+        update, {"vmin": vmin_slider, "vmax": vmax_slider, "logscale": log_box}
     )
 
     # Layout --------------------------------------------------------------------

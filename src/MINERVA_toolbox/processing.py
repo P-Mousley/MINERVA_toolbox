@@ -4,6 +4,10 @@
 # print("Using pyFAI verison: ", pyFAI.version)
 
 
+from pathlib import Path
+
+import h5py
+import matplotlib.pyplot as plt
 import numpy as np
 from lmfit.models import (
     GaussianModel,
@@ -20,6 +24,186 @@ def parse_peak_kwargs(peakinfo, prefix):
     for k, v in peakinfo.items():
         outparams.append([f"{prefix}{k}", v[0], v[1], v[2]])
     return outparams
+
+
+def peakfit_and_plot(peaklist, x, y):
+    # pars += peak2.guess(y, x=x)
+
+    result, comps, y_fit, xnew = fit_peaks(peaklist, x, y)
+
+    fig, (ax1, ax2) = plt.subplots(
+        2, 1, figsize=(8, 4), sharex=True, gridspec_kw={"height_ratios": [3, 1]}
+    )
+    # ax1.plot(x, y, "k.", ms=3, label="Data")
+    # ax1.plot(x, y_fit, "r-", lw=2, label="Total fit")
+    result.plot_fit(ax=ax1)
+
+    # individual components
+    ax1.plot(
+        xnew, comps["bkg_"], color="tab:blue", ls="--", lw=2, label="Background (bkg_)"
+    )
+    for pnum in np.arange(len(peaklist)) + 1:
+        ax1.plot(
+            xnew,
+            comps[f"p{pnum}_"],
+            color="tab:green",
+            lw=2,
+            label=f"Peak {pnum} (p{pnum}_)",
+        )
+    ax1.legend()
+    result.plot_residuals(ax=ax2)
+    plt.tight_layout()
+    plt.show()
+
+    return result
+
+
+class result2d:
+    __slots__ = ("data", "x_axis", "y_axis")
+
+    def __init__(self, data: np.ndarray, x_axis: np.ndarray, y_axis: np.ndarray):
+        self.data = data
+        self.x_axis = x_axis
+        self.y_axis = y_axis
+
+
+class result1d:
+    __slots__ = ("data", "x_axis")
+
+    def __init__(self, data: np.ndarray, x_axis: np.ndarray):
+        self.data = data
+        self.x_axis = x_axis
+
+
+class data_loader:
+    def __init__(self, datafolder: str):
+        self.datafolder = Path(datafolder)
+
+    def check_shape(self, inshape, expected_shape, index1, index2):
+
+        if len(inshape) == expected_shape:
+            ind1max = np.int32(0)
+            ind2max = np.int32(0)
+            outind = slice(None)
+
+        if len(inshape) == expected_shape + 1:
+            ind1max = inshape[0] - 1
+            ind2max = np.int32(0)
+            if index1 > ind1max:
+                index1 = np.int32(0)
+            outind = (index1, slice(None))
+
+        if len(inshape) == expected_shape + 2:
+            ind1max = inshape[0] - 1
+            ind2max = inshape[1] - 1
+            if index1 > ind1max:
+                index1 = np.int32(0)
+            if index2 > ind2max:
+                index2 = np.int32(0)
+            outind = (index1, index2, slice(None))
+
+        return outind, index1, index2, ind1max, ind2max
+
+    def get_1d_data(self, data, paths, dataind, axisind):
+        y_out = data[paths[0]][dataind]
+        x_out = data[paths[1]][axisind]
+        return result1d(data=y_out, x_axis=x_out)
+
+    def get_2d_data(self, data, paths, dataind, axisind):
+        dataout = data[paths[0]][dataind]
+        para_out = data[paths[1]][axisind]
+        perp_out = data[paths[2]][axisind]
+        return result2d(data=dataout, x_axis=para_out, y_axis=perp_out)
+
+    def read_1d_datafile(
+        self, filepath: Path, paths: list, index1: np.int32, index2: np.int32
+    ):
+        with h5py.File(filepath) as h5data:
+            y_shape = np.shape(h5data[paths[0]])
+            x_shape = np.shape(h5data[paths[1]])
+            expected_shape = np.int32(1)
+            dataind, index1, index2, indmax1, indmax2 = self.check_shape(
+                y_shape, expected_shape, index1, index2
+            )
+            axisind, *_ = self.check_shape(x_shape, expected_shape, index1, index2)
+            result = self.get_1d_data(h5data, paths, dataind, axisind)
+        return result, index1, index2, indmax1, indmax2
+
+    def read_2d_datafile(
+        self, filepath: Path, paths: list, index1: np.int32, index2: np.int32
+    ):
+        with h5py.File(filepath) as h5data:
+            map2d_shape = np.shape(h5data[paths[0]])
+            para_shape = np.shape(h5data[paths[1]])
+            perp_shape = np.shape(h5data[paths[2]])
+            assert len(para_shape) == len(perp_shape)
+
+            dataind, index1, index2, indmax1, indmax2 = self.check_shape(
+                map2d_shape,
+                np.int32(2),
+                index1,
+                index2,
+            )
+            axisind, *_ = self.check_shape(
+                np.array([para_shape, perp_shape]),
+                np.int32(2),
+                index1,
+                index2,
+            )
+            result = self.get_2d_data(h5data, paths, dataind, axisind)
+        return result, index1, index2, indmax1, indmax2
+
+    def get_ivsq(
+        self,
+        filename: str,
+        index1: np.int32 | None = None,
+        index2: np.int32 | None = None,
+    ):
+        int_path = "integrations/Intensity"
+        q_path = "integrations/Q_angstrom^-1"
+        paths = [int_path, q_path]
+        filepath = self.datafolder / filename
+        if index1 is None:
+            index1 = np.int32(0)
+        if index2 is None:
+            index2 = np.int32(0)
+        return self.read_1d_datafile(filepath, paths, index1, index2)
+
+    def get_qmap(
+        self,
+        filename: str,
+        index1: np.int32 | None = None,
+        index2: np.int32 | None = None,
+    ):
+        mappath = "qpara_qperp/qpara_qperp_map"
+        para_path = "qpara_qperp/map_para"
+        perp_path = "qpara_qperp/map_perp"
+        filepath = self.datafolder / filename
+        if index1 is None:
+            index1 = np.int32(0)
+        if index2 is None:
+            index2 = np.int32(0)
+        return self.read_2d_datafile(
+            filepath, [mappath, para_path, perp_path], index1, index2
+        )
+
+    def get_exitmap(
+        self,
+        filename: str,
+        index1: np.int32 | None = None,
+        index2: np.int32 | None = None,
+    ):
+        mappath = "exit_angles/exit_angles_map"
+        para_path = "exit_angles/map_para"
+        perp_path = "exit_angles/map_perp"
+        filepath = self.datafolder / filename
+        if index1 is None:
+            index1 = np.int32(0)
+        if index2 is None:
+            index2 = np.int32(0)
+        return self.read_2d_datafile(
+            filepath, [mappath, para_path, perp_path], index1, index2
+        )
 
 
 # peak2 = fit_models[fit_type](prefix='p2_')
@@ -54,6 +238,13 @@ def fit_peaks(peaklist, x, y):
     return result, comps, y_fit, xnew
 
 
+if __name__ == "__main__":
+    test_extractor = data_loader(
+        "/dls/science/users/rpy65944/I07_work/MINERVA_analysis/MINERVA_training/example_data"
+    )
+    testdata = test_extractor.get_ivsq("IvsQ_432196_2026-03-24_13h39m32s.hdf5")
+
+    print("done")
 # def import_poni(ponifile):
 #     global ai
 #     ai = pyFAI.load(ponifile)
