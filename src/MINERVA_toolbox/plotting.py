@@ -1,7 +1,6 @@
 import logging
 import os
 from pathlib import Path
-from typing import List
 
 import h5py
 import ipywidgets as wg
@@ -94,50 +93,13 @@ def plot_1d_profile(
     return fig
 
 
-def get_1d_data(data, paths, dataind, axisind):
-    y_out = data[paths[0]][dataind]
-    x_out = data[paths[1]][axisind]
-    return y_out, x_out
-
-
-def get_2d_data(data, paths, dataind, axisind):
-    dataout = data[paths[0]][dataind]
-    para_out = data[paths[1]][axisind]
-    perp_out = data[paths[2]][axisind]
-    return dataout, np.array([para_out, perp_out])
-
-
-def check_shape(inshape, expected_shape, index1, index2):
-
-    if len(inshape) == expected_shape:
-        ind1max = np.int32(0)
-        ind2max = np.int32(0)
-        outind = slice(None)
-
-    if len(inshape) == expected_shape + 1:
-        ind1max = inshape[0] - 1
-        ind2max = np.int32(0)
-        if index1 > ind1max:
-            index1 = np.int32(0)
-        outind = (index1, slice(None))
-
-    if len(inshape) == expected_shape + 2:
-        ind1max = inshape[0] - 1
-        ind2max = inshape[1] - 1
-        if index1 > ind1max:
-            index1 = np.int32(0)
-        if index2 > ind2max:
-            index2 = np.int32(0)
-        outind = (index1, index2, slice(None))
-
-    return outind, index1, index2, ind1max, ind2max
-
-
+# ===needed to refresh interactive plots when switching between plotters
 def reset_plots():
     plt.close("all")
     wg.Widget.close_all()
 
 
+# === note this extra wrapper class is needed to allow the plotting to refesh properly when switching between different active plots
 class individual_plotter:
     def __init__(self, datafolder: str):
         reset_plots()
@@ -279,6 +241,7 @@ class ind_list_plotter:
         # display(VBox([out]))
 
 
+# === note this extra wrapper class is needed to allow the plotting to refesh properly when switching between different active plots
 class comparison_plotter:
     def __init__(
         self,
@@ -407,85 +370,6 @@ class combo_plotter:
             )
 
 
-# class data_loader:
-#     def __init__(self, datafolder: str):
-#         self.datafolder = Path(datafolder)
-
-#     def get_ivsq(self, filenames: list):
-#         outvals = dict()
-#         for i, testivqfile in enumerate(filenames):
-#             h5data = h5py.File(self.datafolder / testivqfile)
-#             int_vals, q_vals = get_i07_i_q_data(h5data)
-#             outvals[testivqfile] = [int_vals, q_vals]
-#         return outvals
-
-
-def parse_i07_giwaxs(data, title=None):
-    startkeys = data.keys()
-    if "qpara_qperp" in startkeys:
-        return plot_qmap_i07, title
-    elif "exit_angles" in startkeys:
-        return plot_exitmap_i07, title
-    elif "integrations" in startkeys:
-        return plot_ivq_i07, title
-
-
-def parse_i07_giwaxs_plotly(data, title=None):
-    startkeys = data.keys()
-    if "qpara_qperp" in startkeys:
-        return plot_qmap_i07, title
-    elif "exitmap" in startkeys:
-        return plot_exitmap_i07_plotly, title
-    elif "integrations" in startkeys:
-        return plot_ivsq_i07_plotly, title
-
-
-def plot_i07_giwaxs(h5file: Path):
-    fig, ax1 = plt.subplots(1, 1, figsize=(6, 3), dpi=100)
-    with h5py.File(h5file) as data:
-        outfunc, title = parse_i07_giwaxs(data, h5file.stem)
-        outfunc(data, title, figax=[fig, ax1])
-
-
-def get_files(folder, scantype):
-    return [f for f in os.listdir(folder) if scantype in f]
-
-
-def compare_qmap_list(paths: List[Path], logscale=False):
-    row_num = int(np.ceil(len(paths) / 2))
-    fig, axs = plt.subplots(row_num, 2, figsize=(10, 5 * row_num))
-    axlist = axs.flatten()
-    for i, path in enumerate(paths):
-        with h5py.File(path) as h5data:
-            plot_qmap_i07(h5data, path.name, (fig, axlist[i]))
-    # plt.tight_layout()
-    fig.canvas.draw_idle()
-
-
-def compare_exitmap_list(paths: List[Path], logscale=False):
-    row_num = int(np.ceil(len(paths) / 2))
-    fig, axs = plt.subplots(row_num, 2, figsize=(10, 5 * row_num))
-    axlist = axs.flatten()
-    for i, path in enumerate(paths):
-        with h5py.File(path) as h5data:
-            plot_exitmap_i07(h5data, path.name, (fig, axlist[i]))
-    # plt.tight_layout()
-    fig.canvas.draw_idle()
-
-
-def compare_ivq_list(paths: List[Path], logscale=False):
-    fig, ax = plt.subplots(figsize=(10, 5))
-
-    for path in paths:
-        with h5py.File(path) as h5data:
-            plot_ivq_i07(h5data, path.name, (fig, ax), log=logscale)
-
-    if logscale:
-        ax.set_yscale("log")
-
-    fig.canvas.draw_idle()
-
-
 def plot_i07_list(dirpath: Path, scantype: str, title=None):
 
     folder_text = wg.Text(value=str(dirpath), layout=wg.Layout(width="100%"))
@@ -533,102 +417,6 @@ def plot_i07_list(dirpath: Path, scantype: str, title=None):
     ui = wg.VBox([folder_interact, file_list, log_box, plot_interact])
 
     display(ui)
-
-
-def plot_ivq_i07(data, title, figax, log):
-    int_data, q_data = get_i07_i_q_data(data)
-    while len(np.shape(q_data)) > 1:
-        q_data = q_data[0]
-    while len(np.shape(int_data)) > 1:
-        int_data = int_data[0]
-    # wg.interact(plot_1D_profile,q=q_data,intensity=int_data,title=title,ax=ax)
-    fig, ax = plot_1D_profile(
-        q=q_data, intensity=int_data, title=title, figax=figax, logscale=log
-    )
-
-    return fig, ax
-
-
-def plot_qmap_i07(data, title, figax, log=False):
-    map2d, q_para, q_perp = get_i07_qmap_data(data)
-    while len(np.shape(map2d)) > 2:
-        map2d = map2d[0]
-    while len(np.shape(q_para)) > 1:
-        q_para = q_para[0]
-    while len(np.shape(q_perp)) > 1:
-        q_perp = q_perp[0]
-
-    if "map_para_unit" not in data["qpara_qperp"].keys():
-        fig, ax = plot_2D_map(map2d, q_para, q_perp, title=title, figax=figax)
-    else:
-        axlabel_para = data["qpara_qperp/map_para_unit"][()].decode()
-        axlabel_perp = data["qpara_qperp/map_perp_unit"][()].decode()
-        axlabels = [axlabel_para, axlabel_perp]
-
-        fig, ax = plot_2D_map(
-            map2d, q_para, q_perp, labels=axlabels, title=title, figax=figax
-        )
-    return fig, ax
-
-
-def plot_2D_map(
-    intensity,
-    xy,
-    z,
-    vmin=None,
-    vmax=None,
-    dpi=100,
-    limits=None,
-    cm="viridis",
-    labels=["$q_{xy}$  [Å⁻¹]", "$q_z$  [Å⁻¹]"],
-    title="Q_para Vs Q_perp map",
-    figax=None,
-):
-
-    extent = [xy.min(), xy.max(), z.min(), z.max()]
-    if vmax is None:
-        vmax = intensity.max()
-    if vmin is None:
-        vmin = np.max(np.array([intensity.min(), 0.01]))
-    if figax is None:
-        fig, ax = plt.subplots(figsize=(6, 6), dpi=dpi)
-    else:
-        fig, ax = figax
-    im = ax.imshow(
-        intensity,
-        cmap=cm,
-        extent=extent,
-        norm=LogNorm(vmin=vmin, vmax=vmax),
-        aspect=1,
-    )
-    if limits is not None:
-        ax.set_xlim(limits[0], limits[1])
-        ax.set_ylim(limits[2], limits[3])
-    ax.set_title(title)
-    ax.set_xlabel(labels[0])
-    ax.set_ylabel(labels[1])
-    cbar = plt.colorbar(im, ax=ax, location="right")
-    ax.set_aspect("auto")
-    return fig, ax
-
-
-def plot_exitmap_i07(data, title, figax, log=False):
-    map2d, exit_para, exit_perp = get_i07_exitmap_data(data)
-    while len(np.shape(map2d)) > 2:
-        map2d = map2d[0]
-    while len(np.shape(exit_para)) > 1:
-        exit_para = exit_para[0]
-    while len(np.shape(exit_perp)) > 1:
-        exit_perp = exit_perp[0]
-    if "map_para_unit" in data["exit_angles"].keys():
-        axlabel_para = data["exit_angles/map_para_unit"][()].decode()
-        axlabel_perp = data["exit_angles/map_perp_unit"][()].decode()
-        axlabels = [axlabel_para, axlabel_perp]
-        plot_2D_map(
-            map2d, exit_para, exit_perp, labels=axlabels, title=title, figax=figax
-        )
-    else:
-        plot_2D_map(map2d, exit_para, exit_perp, title=title, figax=figax)
 
 
 def plot_chi_profile(
@@ -684,50 +472,6 @@ def plot_contour(csv_file, outfile, cmap="viridis", levels=100, figsize=(10, 6))
     plt.show()
 
     #     folder_text=wg.Text(value='/dls/science/groups/das/ExampleData/i07/fast_rsm_example_data/dev_2026-01-23')
-
-
-def plot_i07_list_old(dirpath: Path, scantype: str, title=None):
-
-    folder_text = wg.Text(value=str(dirpath), layout=wg.Layout(width="100%"))
-
-    # initial file list
-    file_list = wg.Dropdown(
-        options=get_files(folder_text.value, scantype), description=f"{scantype} files"
-    )
-
-    # --- Update list when folder changes ---
-    def update_list(folder):
-        if not os.path.exists(folder):
-            file_list.options = ["folder not found"]
-            return
-        try:
-            new_files = get_files(folder, scantype)
-            file_list.options = new_files
-        except FileNotFoundError:
-            file_list.options = []
-
-    wg.interact(update_list, folder=folder_text)
-
-    # --- Plotting callback ---
-    fig, ax1 = plt.subplots(1, 1, figsize=(6, 3), dpi=100)
-
-    def update_plot(filename, logscale):
-        if filename == "folder not found":
-            return
-        remove_axes(fig)
-        ax1 = fig.add_subplot(1, 1, 1)
-        folder_path = Path(folder_text.value)
-        h5file = folder_path / filename
-
-        with h5py.File(h5file) as data:
-            outfunc, title = parse_i07_giwaxs(data, h5file.stem)
-            outfunc(data, title, figax=[fig, ax1], log=logscale)
-            plt.show()
-
-        fig.canvas.draw_idle()
-
-    log_box = wg.Checkbox(value=False, description="Log y-scale")
-    wg.interact(update_plot, filename=file_list, logscale=log_box)
 
 
 def plot_i07_list_colab(dirpath: Path, scantype: str, title=None):
@@ -947,225 +691,3 @@ if __name__ == "__main__":
         datafolder="/dls/science/users/rpy65944/I07_work/MINERVA_analysis/MINERVA_training/example_data"
     )
     ind_plotter.plot_qmap()
-
-
-#     folder_path=Path(folder_text.value)
-#     ivqfiles = [file for file in os.listdir(folder_text.value) if f'{scantype}' in file]
-#     file_list = wg.Dropdown(options=ivqfiles, description=f"{scantype} files")
-#     #display(file_list)
-#     # index1=wg.IntSlider(value=0)
-#     # index2=wg.IntSlider(value=0)
-#     fig, ax1 = plt.subplots(1,1,figsize=(6,3), dpi=100)
-#     def update_list(folder):
-#         file_list.options=[file for file in os.listdir(folder) if f'{scantype}' in file]
-#     wg.interact(update_list,folder=folder_text)
-#     def update_plot(filename):
-#         remove_axes(fig)
-#         ax1 = fig.add_subplot(1, 1, 1)
-#         h5file=folder_path / filename
-
-#         title=h5file.stem
-#         with h5py.File(h5file) as data:
-#             outfunc,title=parse_i07_giwaxs(data,title)
-#             outfunc(data,title,figax=[fig,ax1])
-#         fig.canvas.draw_idle()
-
-#     wg.interact(update_plot, filename=file_list)
-
-
-##==========plotly functions
-
-
-# def plot_ivsq_i07_plotly(data, title, log_y):
-#     # fig = go.Figure()
-#     range_color = wg.FloatRangeSlider(value=[5, 7.5], min=0, max=10.0)
-#     int_data, q_data = get_i07_i_q_data(data)
-#     while len(np.shape(q_data)) > 1:
-#         q_data = q_data[0]
-#     while len(np.shape(int_data)) > 1:
-#         int_data = int_data[0]
-
-#     fig = px.line(
-#         x=q_data, y=int_data, template="simple_white", title=title, log_y=log_y
-#     )
-#     fig.update_layout(xaxis_title="Q (A^-1)", yaxis_title="Intensity")
-#     # fig.update_xaxes(rangeslider_visible=True)
-#     fig.show()
-
-
-# def plot_i07_list_plotly(dirpath: Path, scantype: str, title=None):
-
-#     folder_text = wg.Text(value=str(dirpath), layout=wg.Layout(width="100%"))
-
-#     # initial file list
-#     file_list = wg.Dropdown(
-#         options=get_files(folder_text.value, scantype), description=f"{scantype} files"
-#     )
-
-#     # --- Update list when folder changes ---
-#     def update_list(folder):
-#         if not os.path.exists(folder):
-#             file_list.options = ["folder not found"]
-#             return
-#         try:
-#             new_files = get_files(folder, scantype)
-#             file_list.options = new_files
-#         except FileNotFoundError:
-#             file_list.options = []
-
-#     wg.interact(update_list, folder=folder_text)
-#     logy_check = wg.Checkbox(value=False, description="log_y", disabled=False)
-
-#     def update_plot(filename, set_logy):
-#         if filename == "folder not found":
-#             return
-#         folder_path = Path(folder_text.value)
-#         h5file = folder_path / filename
-
-#         with h5py.File(h5file) as data:
-#             outfunc, title = parse_i07_giwaxs(data, h5file.stem)
-#             outfunc(data, title, log_y=set_logy)
-
-#     wg.interact(update_plot, filename=file_list, set_logy=logy_check)
-
-
-# def plot_exitmap_i07_plotly(data, title, log_y):
-#     # fig = go.Figure()
-#     map2d, exit_para, exit_perp = get_i07_exitmap_data(data)
-
-#     for item in [map2d, exit_para, exit_perp]:
-#         print(np.shape(item))
-
-#     while len(np.shape(map2d)) > 2:
-#         map2d = map2d[0]
-#     while len(np.shape(exit_para)) > 1:
-#         exit_para = exit_para[0]
-#     while len(np.shape(exit_perp)) > 1:
-#         exit_perp = exit_perp[0]
-#     print(f"mean ={np.mean(map2d)}")
-#     print(f"max = {np.max(map2d)}")
-#     fig = px.imshow(
-#         map2d,
-#         x=exit_para,
-#         y=exit_perp,
-#         template="simple_white",
-#         title=title,
-#         range_color=[0, 10],
-#     )
-#     fig.update_layout(xaxis_title="exit angle para", yaxis_title="exit angle perp")
-#     # fig.update_xaxes(rangeslider_visible=True)
-#     fig.show()
-
-
-class dummy_plotter:
-    def __init__(self, datafolder: str):
-        self.datafolder = Path(datafolder)
-
-    def plot_ivsq(self, option_values):
-        list_plot = DummyListPlotter(option_values, scantype="IvsQ")
-        list_plot.create_plot()
-
-
-class DummyListPlotter:
-    def __init__(self, options, scantype):
-        self.scantype = scantype
-        self.options = options
-
-    def _plot_callback(self, number):
-
-        if not hasattr(self, "fig"):
-            self.fig, self.ax = plt.subplots()
-            return
-        fig, ax = self.fig, self.ax
-        # Plot something simple
-        ax.clear()
-        ax.bar(2, number)
-        ax.set_title(f"{self.scantype} -> value {number}")
-        ax.set_xlabel("Q (A^-1)")
-
-        # ipympl: request redraw
-        # fig.canvas.draw_idle()
-        return fig
-
-    def create_plot(self):
-        # Create a fresh figure for ipympl (important)
-
-        # decorator-created UI
-        @interact
-        def do_plot(
-            number=wg.Dropdown(options=self.options, description=f"{self.scantype}:"),
-        ):
-            self._plot_callback(number)
-
-
-class dummy_list_plotter:
-    def __init__(self, scantype: str):
-        self.type = scantype
-
-    def create_plot(self):
-        # Dropdown
-        self.file_list = wg.Dropdown(
-            options=np.arange(0, 5, 1), description=f"{self.type} files"
-        )
-
-        # Output area for the figure
-        self.out = wg.Output()
-
-        # Create initial figure
-        with self.out:
-            self.fig, self.ax = plt.subplots()
-            self.ax.set_title("testing start")
-
-        # Link callback
-        self.file_list.observe(self.update_plot, names="value")
-
-        # Display UI
-        display(wg.VBox([self.file_list, self.out]))
-
-        # Trigger initial plot
-        self.update_plot({"new": self.file_list.value})
-
-    def update_plot(self, change):
-        number = change["new"]
-        if number is None:
-            return
-
-        # Update inside output area
-        with self.out:
-            self.ax.clear()
-            self.ax.bar(2, number)
-            self.ax.set_xlabel("Q (A^-1)")
-            self.fig.canvas.draw_idle()
-
-
-def plot_dummy_list(datafolder, type):
-
-    file_list = wg.Dropdown(options=np.arange(0, 5, 1), description=f"{type} files")
-
-    # # Create a separate figure for THIS instance
-    # fig, ax1 = plt.subplots(1, 1, figsize=(6, 3), dpi=100)
-
-    def update_plot(number):
-
-        if number in (None, "", "folder not found"):
-            return
-
-        fig, ax = plt.subplots()
-        fig, ax = plot_dummy_vals(number, [fig, ax])
-        fig.canvas.draw_idle()
-
-    plot_interact = wg.interactive_output(update_plot, {"number": file_list})
-
-    ui = wg.VBox([file_list, plot_interact])
-
-    display(ui)
-
-
-def plot_dummy_vals(number, figax):
-    if figax is None:
-        fig, ax = plt.subplots(1, 1, figsize=(8, 4))
-    else:
-        fig, ax = figax
-    ax.bar(2, number)
-    ax.set_xlabel("Q (A^-1)")
-    return fig, ax
