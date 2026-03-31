@@ -69,7 +69,6 @@ nbconvert==7.17.0
 nbformat==5.10.4
 nest-asyncio==1.6.0
 nexusformat==2.0.2
-notebook==7.5.5
 notebook_shim==0.2.4
 numexpr==2.14.1
 numpy==2.4.3
