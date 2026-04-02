@@ -465,7 +465,7 @@ class combo_plotter:
                 logscale,
                 axlabels,
             )
-        plt.tight_layout()
+        fig.tight_layout()
 
     def plot_chimap(
         self,
