@@ -15,6 +15,13 @@ from matplotlib.colors import LogNorm, Normalize
 
 from MINERVA_toolbox.processing import data_loader, result1d, result2d
 
+# logger = logging.getLogger(__name__)
+# logpath = Path("/dls/science/users/rpy65944/I07_work/MINERVA_analysis/")
+# logging.basicConfig(
+#     filename=str(logpath / "testlog.log"), encoding="utf-8", level=logging.DEBUG
+# )
+# logging.getLogger("matplotlib").disabled = True
+
 
 def get_logger(folderpath, name):
     logger = logging.getLogger(name)
@@ -113,6 +120,7 @@ class individual_plotter:
 
 class ind_list_plotter:
     def __init__(self, folderpath):
+        reset_plots()
         self._updating = False
         self.folderpath = folderpath
         self.loader = data_loader(folderpath)
@@ -122,13 +130,19 @@ class ind_list_plotter:
         # )
 
     def get_files(self):
-        return [f for f in os.listdir(self.folderpath) if (self.scantype in f )and (f.endswith('.hdf5'))]
+        return [
+            f
+            for f in os.listdir(self.folderpath)
+            if (self.scantype in f) and (f.endswith(".hdf5"))
+        ]
 
     def set_plot_callback(self):
         callback_dict = {
             "IvsQ": self._plot_ivsq,
             "Qmap": self._plot_qmap,
             "exitmap": self._plot_exitmap,
+            "Chimap": self._plot_chimap,
+            "IvsChi": self._plot_ivschi,
         }
         self._plot_callback = callback_dict[self.scantype]
 
@@ -137,6 +151,8 @@ class ind_list_plotter:
             "IvsQ": self.loader.get_ivsq,
             "Qmap": self.loader.get_qmap,
             "exitmap": self.loader.get_exitmap,
+            "Chimap": self.loader.get_chimap,
+            "IvsChi": self.loader.get_ivschi,
         }
         self._dataloader = loaders_dict[self.scantype]
 
@@ -146,8 +162,26 @@ class ind_list_plotter:
         self.set_plot_callback()
         self.set_dataloader()
 
+    def _plot_chimap(
+        self, data_result: result2d, filename: str, fig, ax, logscale: bool
+    ):
+        axlabelx = data_result.x_unit or "$q_{total}$  [Å⁻¹]"
+        axlabely = data_result.y_unit or "$Chi$  [deg]"
+        axlabels = [axlabelx, axlabely]
+        return plot_2d_map(
+            data_result.data,
+            [data_result.x_axis, data_result.y_axis],
+            filename,
+            fig,
+            ax,
+            logscale,
+            axlabels,
+        )
+
     def _plot_qmap(self, data_result: result2d, filename: str, fig, ax, logscale: bool):
-        axlabels = ["$_{para}$  [Å⁻¹]", "$q_{perp}$  [Å⁻¹]"]
+        axlabelx = data_result.x_unit or "$q_{para}$  [Å⁻¹]"
+        axlabely = data_result.y_unit or "$q_{perp}$  [Å⁻¹]"
+        axlabels = [axlabelx, axlabely]
         return plot_2d_map(
             data_result.data,
             [data_result.x_axis, data_result.y_axis],
@@ -161,8 +195,9 @@ class ind_list_plotter:
     def _plot_exitmap(
         self, data_result: result2d, filename: str, fig, ax, logscale: bool
     ):
-
-        axlabels = ["$exitangle_{para}$  [deg]", "$exitangle_{perp}$  [deg]"]
+        axlabelx = data_result.x_unit or "$exitangle_{para}$  [deg]"
+        axlabely = data_result.y_unit or "$exitangle_{perp}$  [deg]"
+        axlabels = [axlabelx, axlabely]
         return plot_2d_map(
             data_result.data,
             [data_result.x_axis, data_result.y_axis],
@@ -175,6 +210,18 @@ class ind_list_plotter:
 
     def _plot_ivsq(self, data_result: result1d, filename, fig, ax, logscale):
         axlabels = ["Intensity", "Q (A^-1)"]
+        return plot_1d_profile(
+            data_result.data,
+            data_result.x_axis,
+            filename,
+            fig,
+            ax,
+            logscale,
+            axlabels,
+        )
+
+    def _plot_ivschi(self, data_result: result1d, filename, fig, ax, logscale):
+        axlabels = ["Intensity", "Chi [Deg]"]
         return plot_1d_profile(
             data_result.data,
             data_result.x_axis,
@@ -200,7 +247,7 @@ class ind_list_plotter:
 
         @interact(
             scantype=wg.Dropdown(
-                options=["IvsQ", "Qmap", "exitmap"],
+                options=["IvsQ", "IvsChi", "Qmap", "exitmap", "Chimap"],
                 description="scantype",
             ),
             filename=files,
@@ -216,12 +263,12 @@ class ind_list_plotter:
             # out.clear_output()
             self._updating = True
             self.set_scantype(scantype)
-            if len(self.filelist)==0:
-                files.options=['No files found']
+            if len(self.filelist) == 0:
+                files.options = ["No files found"]
                 fig.clear()
                 self._updating = False
                 return
-            
+
             files.options = self.filelist
             self._updating = False
             fig.clear()
@@ -283,12 +330,17 @@ class combo_plotter:
         index2vals: np.ndarray | None = None,
         logscale=False,
     ):
+        reset_plots()
         if all(["IvsQ" in file for file in filenames]):
             self.plot_ivsq(filenames, index1vals, index2vals, logscale)
+        elif all(["IvsChi" in file for file in filenames]):
+            self.plot_ivschi(filenames, index1vals, index2vals, logscale)
         elif all(["Qmap" in file for file in filenames]):
             self.plot_qmap(filenames, index1vals, index2vals, logscale)
         elif all(["exitmap" in file for file in filenames]):
             self.plot_exitmap(filenames, index1vals, index2vals, logscale)
+        elif all(["Chimap" in file for file in filenames]):
+            self.plot_chimap(filenames, index1vals, index2vals, logscale)
 
     def plot_ivsq(
         self,
@@ -303,6 +355,7 @@ class combo_plotter:
             index1vals = np.zeros(len(filenames)).astype(np.int32)
         if index2vals is None:
             index2vals = np.zeros(len(filenames)).astype(np.int32)
+
         self.fig, self.ax = plt.subplots(figsize=(10, 5))
         for file_num, file in enumerate(filenames):
             index1 = index1vals[file_num]
@@ -320,6 +373,35 @@ class combo_plotter:
                 label=f"{filenames[file_num]} {index1} {index2}",
             )
 
+    def plot_ivschi(
+        self,
+        filenames: list,
+        index1vals: np.ndarray | None = None,
+        index2vals: np.ndarray | None = None,
+        logscale: bool = False,
+    ):
+        # plotpaths = [self.datafolder / name for name in filenames]
+        axlabels = ["Intensity", "Chi [Deg]"]
+        if index1vals is None:
+            index1vals = np.zeros(len(filenames)).astype(np.int32)
+        if index2vals is None:
+            index2vals = np.zeros(len(filenames)).astype(np.int32)
+        self.fig, self.ax = plt.subplots(figsize=(10, 5))
+        for file_num, file in enumerate(filenames):
+            index1 = index1vals[file_num]
+            index2 = index2vals[file_num]
+            result, *_ = self.loader.get_ivschi(file, index1, index2)
+
+            plot_1d_profile(
+                result.data,
+                result.x_axis,
+                file,
+                self.fig,
+                self.ax,
+                logscale,
+                axlabels,
+                label=f"{filenames[file_num]} {index1} {index2}",
+            )
         # fig.canvas.draw_idle()
 
     def plot_exitmap(
@@ -359,7 +441,6 @@ class combo_plotter:
         logscale: bool = False,
     ):
 
-        axlabels = ["$q_{para}$  [Å⁻¹]", "$q_{perp}$  [Å⁻¹]"]
         if index1vals is None:
             index1vals = np.zeros(len(filenames)).astype(np.int32)
         if index2vals is None:
@@ -372,6 +453,44 @@ class combo_plotter:
             index2 = index2vals[file_num]
 
             result, *_ = self.loader.get_qmap(filename, index1, index2)
+            axlabelx = result.x_unit or "$q_{para}$  [Å⁻¹]"
+            axlabely = result.y_unit or "$q_{perp}$  [Å⁻¹]"
+            axlabels = [axlabelx, axlabely]
+            plot_2d_map(
+                result.data,
+                [result.x_axis, result.y_axis],
+                filename,
+                fig,
+                axlist[file_num],
+                logscale,
+                axlabels,
+            )
+        plt.tight_layout()
+
+    def plot_chimap(
+        self,
+        filenames: list,
+        index1vals: np.ndarray | None = None,
+        index2vals: np.ndarray | None = None,
+        logscale: bool = False,
+    ):
+
+        axlabels = ["$q_{para}$  [Å⁻¹]", "$q_{perp}$  [Å⁻¹]"]
+        if index1vals is None:
+            index1vals = np.zeros(len(filenames)).astype(np.int32)
+        if index2vals is None:
+            index2vals = np.zeros(len(filenames)).astype(np.int32)
+        row_num = int(np.ceil(len(filenames) / 2))
+        fig, axs = plt.subplots(row_num, 2, figsize=(10, 5 * row_num))
+        axlist = axs.flatten()
+        for file_num, filename in enumerate(filenames):
+            index1 = index1vals[file_num]
+            index2 = index2vals[file_num]
+
+            result, *_ = self.loader.get_chimap(filename, index1, index2)
+            axlabelx = result.x_unit or "$q_{total}$  [Å⁻¹]"
+            axlabely = result.y_unit or "$Chi$  [deg]"
+            axlabels = [axlabelx, axlabely]
             plot_2d_map(
                 result.data,
                 [result.x_axis, result.y_axis],

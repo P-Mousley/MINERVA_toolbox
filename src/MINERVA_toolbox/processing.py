@@ -18,6 +18,14 @@ from lmfit.models import (
     SplitLorentzianModel,
 )
 
+# logger = logging.getLogger(__name__)
+# logpath = Path("/dls/science/users/rpy65944/I07_work/MINERVA_analysis/")
+# logging.basicConfig(
+#     filename=str(logpath / "testlog.log"), encoding="utf-8", level=logging.DEBUG
+# )
+
+# logging.getLogger("matplotlib").disabled = True
+
 
 def parse_peak_kwargs(peakinfo, prefix):
     outparams = []
@@ -92,12 +100,21 @@ def fit_peaks(peaklist: list, x: np.ndarray, y: np.ndarray, background=None):
 
 
 class result2d:
-    __slots__ = ("data", "x_axis", "y_axis")
+    __slots__ = ("data", "x_axis", "y_axis", "x_unit", "y_unit")
 
-    def __init__(self, data: np.ndarray, x_axis: np.ndarray, y_axis: np.ndarray):
+    def __init__(
+        self,
+        data: np.ndarray,
+        x_axis: np.ndarray,
+        y_axis: np.ndarray,
+        x_unit: str | None = None,
+        y_unit: str | None = None,
+    ):
         self.data = data
         self.x_axis = x_axis
         self.y_axis = y_axis
+        self.x_unit = x_unit
+        self.y_unit = y_unit
 
 
 class result1d:
@@ -122,7 +139,7 @@ class data_loader:
         if len(inshape) == expected_shape + 1:
             ind0max = inshape[0] - 1
             ind1max = np.int32(0)
-            if index1 > ind1max:
+            if index1 > ind0max:
                 index1 = np.int32(0)
             outind = (index1, slice(None))
 
@@ -146,7 +163,16 @@ class data_loader:
         dataout = data[paths[0]][dataind]
         para_out = data[paths[1]][axisind]
         perp_out = -1 * data[paths[2]][axisind]
-        return result2d(data=dataout, x_axis=para_out, y_axis=perp_out)
+        para_unit = data[paths[1] + "_unit"][()].decode("utf-8")
+        perp_unit = data[paths[2] + "_unit"][()].decode("utf-8")
+
+        return result2d(
+            data=dataout,
+            x_axis=para_out,
+            y_axis=perp_out,
+            x_unit=para_unit,
+            y_unit=perp_unit,
+        )
 
     def read_1d_datafile(
         self, filepath: Path, paths: list, index1: np.int32, index2: np.int32
@@ -163,12 +189,23 @@ class data_loader:
         return result, index1, index2, indmax1, indmax2
 
     def read_2d_datafile(
-        self, filepath: Path, paths: list, index1: np.int32, index2: np.int32
+        self,
+        filepath: Path,
+        map_namestring: str,
+        index1: np.int32 | None,
+        index2: np.int32 | None,
     ):
+        if index1 is None:
+            index1 = np.int32(0)
+        if index2 is None:
+            index2 = np.int32(0)
+        mappath = f"{map_namestring}/{map_namestring}_map"
+        para_path = f"{map_namestring}/map_para"
+        perp_path = f"{map_namestring}/map_perp"
         with h5py.File(filepath) as h5data:
-            map2d_shape = np.shape(h5data[paths[0]])
-            para_shape = np.shape(h5data[paths[1]])
-            perp_shape = np.shape(h5data[paths[2]])
+            map2d_shape = np.shape(h5data[mappath])
+            para_shape = np.shape(h5data[para_path])
+            perp_shape = np.shape(h5data[perp_path])
             assert len(para_shape) == len(perp_shape)
 
             dataind, index1, index2, indmax2, indmax1 = self.check_shape(
@@ -177,13 +214,17 @@ class data_loader:
                 index1,
                 index2,
             )
+
             axisind, *_ = self.check_shape(
                 np.array([para_shape, perp_shape]),
                 np.int32(2),
                 index1,
                 index2,
             )
-            result = self.get_2d_data(h5data, paths, dataind, axisind)
+
+            result = self.get_2d_data(
+                h5data, [mappath, para_path, perp_path], dataind, axisind
+            )
 
         return result, index1, index2, indmax1, indmax2
 
@@ -203,23 +244,43 @@ class data_loader:
             index2 = np.int32(0)
         return self.read_1d_datafile(filepath, paths, index1, index2)
 
+    def get_ivschi(
+        self,
+        filename: str,
+        index1: np.int32 | None = None,
+        index2: np.int32 | None = None,
+    ):
+        int_path = "integrations/Intensity"
+        chi_path = "integrations/chigi_deg"
+        paths = [int_path, chi_path]
+        filepath = self.datafolder / filename
+        if index1 is None:
+            index1 = np.int32(0)
+        if index2 is None:
+            index2 = np.int32(0)
+        return self.read_1d_datafile(filepath, paths, index1, index2)
+
     def get_qmap(
         self,
         filename: str,
         index1: np.int32 | None = None,
         index2: np.int32 | None = None,
     ):
-        mappath = "qpara_qperp/qpara_qperp_map"
-        para_path = "qpara_qperp/map_para"
-        perp_path = "qpara_qperp/map_perp"
+        map_namestring = "qpara_qperp"
         filepath = self.datafolder / filename
-        if index1 is None:
-            index1 = np.int32(0)
-        if index2 is None:
-            index2 = np.int32(0)
-        return self.read_2d_datafile(
-            filepath, [mappath, para_path, perp_path], index1, index2
-        )
+
+        return self.read_2d_datafile(filepath, map_namestring, index1, index2)
+
+    def get_chimap(
+        self,
+        filename: str,
+        index1: np.int32 | None = None,
+        index2: np.int32 | None = None,
+    ):
+
+        map_namestring = "chi_qtotal"
+        filepath = self.datafolder / filename
+        return self.read_2d_datafile(filepath, map_namestring, index1, index2)
 
     def get_exitmap(
         self,
@@ -227,23 +288,18 @@ class data_loader:
         index1: np.int32 | None = None,
         index2: np.int32 | None = None,
     ):
-        mappath = "exit_angles/exit_angles_map"
-        para_path = "exit_angles/map_para"
-        perp_path = "exit_angles/map_perp"
+        map_namestring = "exit_angles"
         filepath = self.datafolder / filename
-        if index1 is None:
-            index1 = np.int32(0)
-        if index2 is None:
-            index2 = np.int32(0)
-        return self.read_2d_datafile(
-            filepath, [mappath, para_path, perp_path], index1, index2
-        )
+
+        return self.read_2d_datafile(filepath, map_namestring, index1, index2)
 
     def parse_loader(self, filename):
         loaders_dict = {
             "IvsQ": self.get_ivsq,
             "Qmap": self.get_qmap,
             "exitmap": self.get_exitmap,
+            "Chimap": self.get_chimap,
+            "IvsChi": self.get_ivschi,
         }
         for k, v in loaders_dict.items():
             if k in filename:
@@ -270,14 +326,19 @@ class data_loader:
         return results
 
 
-if __name__ == "__main__":
-    test_extractor = data_loader(
-        "/dls/science/users/rpy65944/I07_work/MINERVA_analysis/MINERVA_training/example_data"
+def main():
+    loader = data_loader(
+        "/dls/science/groups/das/ExampleData/i07/fast_rsm_example_data/local_2026-04-02/"
     )
-    testdata = test_extractor.get_ivsq("IvsQ_432196_2026-03-24_13h39m32s.hdf5")
+    found_loader = loader.get_chimap
+    outdata = found_loader("Chimap_561339_2026-04-02_09h58m49s.hdf5", 0, 0)
+    print("DEBUG pause point")
 
-    print("done")
-# def import_poni(ponifile):
+
+if __name__ == "__main__":
+    main()
+
+    # def import_poni(ponifile):
 #     global ai
 #     ai = pyFAI.load(ponifile)
 
