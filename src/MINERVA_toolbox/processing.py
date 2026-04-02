@@ -4,6 +4,7 @@
 # print("Using pyFAI verison: ", pyFAI.version)
 
 
+from dataclasses import dataclass
 from pathlib import Path
 
 import h5py
@@ -99,30 +100,19 @@ def fit_peaks(peaklist: list, x: np.ndarray, y: np.ndarray, background=None):
     return result, comps, y_fit, xnew
 
 
+@dataclass(slots=True)
 class result2d:
-    __slots__ = ("data", "x_axis", "y_axis", "x_unit", "y_unit")
-
-    def __init__(
-        self,
-        data: np.ndarray,
-        x_axis: np.ndarray,
-        y_axis: np.ndarray,
-        x_unit: str | None = None,
-        y_unit: str | None = None,
-    ):
-        self.data = data
-        self.x_axis = x_axis
-        self.y_axis = y_axis
-        self.x_unit = x_unit
-        self.y_unit = y_unit
+    data: np.ndarray
+    x_axis: np.ndarray
+    y_axis: np.ndarray
+    x_unit: str | None = None
+    y_unit: str | None = None
 
 
+@dataclass(slots=True)
 class result1d:
-    __slots__ = ("data", "x_axis")
-
-    def __init__(self, data: np.ndarray, x_axis: np.ndarray):
-        self.data = data
-        self.x_axis = x_axis
+    data: np.ndarray
+    x_axis: np.ndarray
 
 
 class data_loader:
