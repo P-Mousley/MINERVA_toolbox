@@ -100,7 +100,7 @@ def fit_peaks(peaklist: list, x: np.ndarray, y: np.ndarray, background=None):
     return result, comps, y_fit, xnew
 
 
-@dataclass(slots=True)
+@dataclass
 class result2d:
     data: np.ndarray
     x_axis: np.ndarray
@@ -109,10 +109,14 @@ class result2d:
     y_unit: str | None = None
 
 
-@dataclass(slots=True)
+@dataclass
 class result1d:
     data: np.ndarray
+    data_name: str
     x_axis: np.ndarray
+    x_axis_name: str
+    x2_axis: np.ndarray | None = None
+    x2_axis_name: str | None = None
 
 
 class data_loader:
@@ -147,7 +151,11 @@ class data_loader:
     def get_1d_data(self, data, paths, dataind, axisind):
         y_out = data[paths[0]][dataind]
         x_out = data[paths[1]][axisind]
-        return result1d(data=y_out, x_axis=x_out)
+        x_out_name = paths[1]
+        y_out_name = paths[0]
+        return result1d(
+            data=y_out, x_axis=x_out, data_name=y_out_name, x_axis_name=x_out_name
+        )
 
     def get_2d_data(self, data, paths, dataind, axisind):
         dataout = data[paths[0]][dataind]
